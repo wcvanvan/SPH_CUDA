@@ -1,16 +1,12 @@
 CXX=g++
 NVCC=nvcc
-CUDA_VERSION=12.4  # Updated to 12.4 as you mentioned
-# Find CUDA installation
+CUDA_VERSION=12.4
 CUDA_PATH=/usr/local/cuda
-# Find SDL2 path
 SDL2_PATH=$(HOME)/private/SDL-release-2.32.4
 
-# Include directories
 INC_DIRS=$(CUDA_PATH)/include $(SDL2_PATH)/include
 INC=$(foreach d, $(INC_DIRS), -I$d)
 
-# Library directories
 LIB_DIRS=$(CUDA_PATH)/lib64 $(CUDA_PATH)/lib $(SDL2_PATH)/build
 LIBS=$(foreach d, $(LIB_DIRS), -L$d)
 
