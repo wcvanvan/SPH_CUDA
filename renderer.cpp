@@ -1,14 +1,10 @@
 #include <stdio.h>
+#include <stdlib.h>
 #include <iostream>
 #include <string.h>
 #include <SDL2/SDL.h>
 #include "const.h"
 #include "sph.h"
-
-void render(void *buf)
-{
-    SPHSimulation((uint32_t *)buf);
-}
 
 int main(int argc, char *args[])
 {
@@ -22,8 +18,8 @@ int main(int argc, char *args[])
     }
 
     SDL_Window *window = SDL_CreateWindow(
-        "main",
-        SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED,
+        "Fluid Simulation",
+        SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
         SCREEN_WIDTH, SCREEN_HEIGHT,
         SDL_WINDOW_SHOWN);
     if (window == NULL)
@@ -32,37 +28,22 @@ int main(int argc, char *args[])
         return 1;
     }
 
-    uint32_t *buf = gpuAlloc();
-
-    SDL_Surface *screen = SDL_CreateRGBSurfaceFrom(buf, SCREEN_WIDTH, SCREEN_HEIGHT, 32, SCREEN_WIDTH * sizeof(uint32_t),
-                                                   0x00FF0000,
-                                                   0x0000FF00,
-                                                   0x000000FF,
-                                                   0xFF000000);
-
-    if (screen == NULL)
-    {
-        SDL_Log("SDL_CreateRGBSurfaceFrom() failed: %s", SDL_GetError());
-        return 1;
-    }
-
     SDL_Renderer *sdlRenderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
+    SDL_SetRenderDrawColor(sdlRenderer, 0, 0, 0, 255);
+    SDL_RenderClear(sdlRenderer);
 
-    SDL_Texture *sdlTexture = SDL_CreateTexture(sdlRenderer,
-                                                SDL_PIXELFORMAT_ARGB8888,
-                                                SDL_TEXTUREACCESS_STREAMING | SDL_TEXTUREACCESS_TARGET,
-                                                SCREEN_WIDTH, SCREEN_HEIGHT);
-
-    if (sdlTexture == NULL)
+    // Init particles randomly
+    int particleCount = 1000;
+    Particle *particles = SPHInit();
+    for (int i = 0; i < particleCount; i++)
     {
-        SDL_Log("SDL_Error failed: %s", SDL_GetError());
-        return 1;
+        particles[i].position.x = (float)rand() / RAND_MAX;
+        particles[i].position.y = (float)rand() / RAND_MAX;
     }
 
     uint32_t next_frame_time = SDL_GetTicks();
     while (1)
     {
-
         SDL_Event e;
         if (SDL_PollEvent(&e))
         {
@@ -75,13 +56,16 @@ int main(int argc, char *args[])
         uint32_t now = SDL_GetTicks();
         if (next_frame_time <= now)
         {
-            render(buf);
-            SDL_UpdateTexture(sdlTexture, NULL, screen->pixels, screen->pitch);
-            SDL_RenderClear(sdlRenderer);
-            SDL_RenderCopy(sdlRenderer, sdlTexture, NULL, NULL);
-            SDL_RenderPresent(sdlRenderer);
-
+            updateSimulation(particles, particleCount);
+            for (int i = 0; i < particleCount; i++)
+            {
+                SDL_SetRenderDrawColor(sdlRenderer, 18, 149, 217, 255);
+                SDL_RenderDrawPoint(sdlRenderer, particles[i].position.x * SCREEN_WIDTH, particles[i].position.y * SCREEN_HEIGHT);
+            }
             next_frame_time += time_step;
+            SDL_RenderPresent(sdlRenderer);
+            SDL_SetRenderDrawColor(sdlRenderer, 0, 0, 0, 255);
+            SDL_RenderClear(sdlRenderer);
         }
         else
         {
@@ -89,8 +73,6 @@ int main(int argc, char *args[])
         }
     }
 
-    gpuFree(buf);
-    SDL_DestroyTexture(sdlTexture);
     SDL_DestroyRenderer(sdlRenderer);
     SDL_DestroyWindow(window);
     SDL_Quit();
