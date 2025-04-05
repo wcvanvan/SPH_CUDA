@@ -4,6 +4,7 @@
 #include <iostream>
 #include <string.h>
 #include <SDL2/SDL.h>
+#include "SDL2_gfxPrimitives.h"
 #include "const.h"
 #include "sph.h"
 #include "vec.h"
@@ -11,7 +12,7 @@
 Mat4 viewMat;
 Mat4 projMat;
 
-Vec2 getScreenCoord(Vec3 worldCoord)
+Vec2 worldToScreen(Vec3 &worldCoord)
 {
     Vec4 p(worldCoord);
     Vec4 ndcCoord = viewMat * p;
@@ -25,6 +26,58 @@ Vec2 getScreenCoord(Vec3 worldCoord)
     float screenX = std::max(0.0f, std::min(1.0f, (ndcCoord.x + 1.0f) * 0.5f)) * SCREEN_WIDTH;
     float screenY = std::max(0.0f, std::min(1.0f, (1.0f - ndcCoord.y) * 0.5f)) * SCREEN_HEIGHT;
     return {screenX, screenY};
+}
+
+class Sink
+{
+public:
+    float xLen = 5;
+    float yLen = 2;
+    float zLen = 5;
+    Vec3 sinkVertices[8] = {
+        {-xLen / 2, -yLen / 2, zLen / 2},  // Bottom front left
+        {xLen / 2, -yLen / 2, zLen / 2},   // Bottom front right
+        {xLen / 2, -yLen / 2, -zLen / 2},  // Bottom back right
+        {-xLen / 2, -yLen / 2, -zLen / 2}, // Bottom back left
+        {-xLen / 2, yLen / 2, zLen / 2},   // Top front left
+        {xLen / 2, yLen / 2, zLen / 2},    // Top front right
+        {xLen / 2, yLen / 2, -zLen / 2},   // Top back right
+        {-xLen / 2, yLen / 2, -zLen / 2}   // Top back left
+    };
+    int faces[5][4] = {
+        // five faces
+        // In order. Don't change when not necessary
+        {2, 3, 7, 6}, // Back
+        {0, 1, 2, 3}, // Bottom
+        {1, 2, 6, 5}, // Right
+        {3, 0, 4, 7}, // Left
+        {0, 1, 5, 4}, // Front
+    };
+    SDL_Point screenPoints[8];
+    Sink()
+    {
+        // change from world coordinates to screen coordinates
+        for (int i = 0; i < 8; i++)
+        {
+            Vec2 screenCoord = worldToScreen(sinkVertices[i]);
+            screenPoints[i] = {(int)screenCoord.x, (int)screenCoord.y};
+        }
+    }
+};
+
+void renderSink(SDL_Renderer *sdlRenderer, Sink &sink)
+{
+    for (int i = 0; i < 5; i++)
+    {
+        Sint16 vx[4], vy[4];
+        for (int j = 0; j < 4; j++)
+        {
+            vx[j] = (Sint16)sink.screenPoints[sink.faces[i][j]].x;
+            vy[j] = (Sint16)sink.screenPoints[sink.faces[i][j]].y;
+        }
+        filledPolygonRGBA(sdlRenderer, vx, vy, 4, 220, 220, 220, 255);
+        polygonRGBA(sdlRenderer, vx, vy, 4, 0, 0, 0, 255);
+    }
 }
 
 int main(int argc, char *args[])
@@ -60,19 +113,14 @@ int main(int argc, char *args[])
     float fov = 45.0f * PI / 180.0f;
     float aspectRatio = (float)SCREEN_WIDTH / SCREEN_HEIGHT;
     float near = 0.1f;
-    float far = 10.0f;
+    float far = 20.0f;
     projMat = proj(fov, near, far, aspectRatio);
     viewMat = lookat(eye, center, up);
 
-    // Init particles randomly
-    int particleCount = 10;
-    Particle *particles = SPHInit();
-    for (int i = 0; i < particleCount; i++)
-    {
-        particles[i].position.x = 0;
-        particles[i].position.y = 0;
-        particles[i].position.z = 5 * (float)i / particleCount;
-    }
+    // // Init particles randomly
+    // int particleCount = 5000;
+    // Particle *particles = initParticles(particleCount);
+    Sink sink;
 
     uint32_t next_frame_time = SDL_GetTicks();
 
@@ -90,16 +138,17 @@ int main(int argc, char *args[])
         uint32_t now = SDL_GetTicks();
         if (next_frame_time <= now)
         {
-            updateSimulation(particles, particleCount);
-            for (int i = 0; i < particleCount; i++)
-            {
-                Vec2 screenCoord = getScreenCoord(particles[i].position);
-                if (screenCoord.x == -1) {
-                    continue;
-                }
-                SDL_SetRenderDrawColor(sdlRenderer, 18, 149, 217, 255);
-                SDL_RenderDrawPoint(sdlRenderer, screenCoord.x, screenCoord.y);
-            }
+            // updateSimulation(particles, particleCount);
+            // for (int i = 0; i < particleCount; i++)
+            // {
+            //     Vec2 screenCoord = worldToScreen(particles[i].position);
+            //     if (screenCoord.x == -1) {
+            //         continue;
+            //     }
+            //     SDL_SetRenderDrawColor(sdlRenderer, 18, 149, 217, 255);
+            //     SDL_RenderDrawPoint(sdlRenderer, screenCoord.x, screenCoord.y);
+            // }
+            renderSink(sdlRenderer, sink);
             next_frame_time += time_step;
             SDL_RenderPresent(sdlRenderer);
             SDL_SetRenderDrawColor(sdlRenderer, 0, 0, 0, 255);

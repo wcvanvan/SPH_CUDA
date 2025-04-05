@@ -21,7 +21,7 @@ public:
 /**
  * Create particles
  */
- Particle *SPHInit();
+ Particle *initParticles(int particleCount);
 
 /**
  * Compute interaction and update the particles

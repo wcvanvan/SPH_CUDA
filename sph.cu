@@ -1,10 +1,10 @@
 #include <iostream>
 #include "sph.h"
 
-Particle *SPHInit()
+Particle *initParticles(int particleCount)
 {
     Particle *particles;
-    cudaMallocManaged(&particles, MAX_PARTICLES * sizeof(Particle));
+    cudaMallocManaged(&particles, particleCount * sizeof(Particle));
     return particles;
 }
 
