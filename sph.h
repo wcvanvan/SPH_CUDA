@@ -3,17 +3,18 @@
 #include <stdint.h>
 #include "const.h"
 #include "vec.h"
+#include "sink.h"
 
 class Particle
 {
 public:
     Particle(Vec3 position, int id);
-    float mass = 1.0f;
     float density = 0.0f;
     float pressure = 0.0f;
 
     Vec3 position;
     Vec3 velocity;
+    Vec3 velocityHalf;
     Vec3 evelocity;
     Vec3 acceleration;
 };
@@ -21,11 +22,10 @@ public:
 /**
  * Create particles
  */
- Particle *initParticles(int particleCount);
-
+ Particle *initParticles(int particleCount, float *mass, Sink &sink);
+ void initSimulation(Particle *particles, int particleCount, const Sink &sink, float mass);
 /**
  * Compute interaction and update the particles
  */
-void updateSimulation(Particle *particles, int particleCount);
-
+ void updateSimulation(Particle *particles, int particleCount, const Sink &sink, float mass);
 

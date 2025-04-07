@@ -24,8 +24,11 @@ public:
         y = b;
         z = c;
     }
-    Vec3 operator+(Vec3 &v);
-    Vec3 operator-(Vec3 &v);
+    Vec3 operator+(Vec3 v);
+    Vec3 operator+(float f);
+    Vec3 operator-(Vec3 v);
+    Vec3 operator*(float f);
+    Vec3 operator/(float f);
     float &operator[](int idx);
 
     float norm();

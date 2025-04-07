@@ -3,7 +3,7 @@
 #include "const.h"
 #include "vec.h"
 
-Vec3 Vec3::operator+(Vec3 &v)
+Vec3 Vec3::operator+(Vec3 v)
 {
     Vec3 result;
     result.x = x + v.x;
@@ -12,12 +12,37 @@ Vec3 Vec3::operator+(Vec3 &v)
     return result;
 }
 
-Vec3 Vec3::operator-(Vec3 &v)
+Vec3 Vec3::operator+(float f)
+{
+    Vec3 result;
+    result.x = x + f;
+    result.y = y + f;
+    result.z = z + f;
+    return result;
+}
+
+Vec3 Vec3::operator-(Vec3 v)
 {
     Vec3 result;
     result.x = x - v.x;
     result.y = y - v.y;
     result.z = z - v.z;
+    return result;
+}
+
+Vec3 Vec3::operator*(float f) {
+    Vec3 result = *this;
+    result.x *= f;
+    result.y *= f;
+    result.z *= f;
+    return result;
+}
+
+Vec3 Vec3::operator/(float f) {
+    Vec3 result = *this;
+    result.x /= f;
+    result.y /= f;
+    result.z /= f;
     return result;
 }
 
