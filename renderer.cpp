@@ -108,14 +108,22 @@ int main(int argc, char *args[])
 
     // Init scene
     Sink sink;
-    int particleCount = 5000;
+    int particleCount = 0;
     float mass = 1.0f;
-    Particle *particles = initParticles(particleCount, &mass, sink);
+    Particle *particles = initParticles(particleCount, mass, sink);
     initSimulation(particles, particleCount, sink, mass);
-    uint32_t next_frame_time = SDL_GetTicks();
+
+    // Uint32 frameStart = 0;
+    // Uint32 frameTime = 0;
 
     while (1)
     {
+        // Uint32 currentTime = SDL_GetTicks();
+        // frameTime = frameStart > 0 ? currentTime - frameStart : 0;
+        // frameStart = currentTime;
+        // float fps = frameTime > 0 ? 1000.0f / frameTime : 0;
+        // printf("Frame time: %u ms (%.1f FPS)\n", frameTime, fps);
+        
         SDL_Event e;
         if (SDL_PollEvent(&e))
         {
@@ -124,32 +132,23 @@ int main(int argc, char *args[])
                 break;
             }
         }
-
-        uint32_t now = SDL_GetTicks();
-        if (next_frame_time <= now)
+        
+        SDL_SetRenderDrawColor(sdlRenderer, 0, 0, 0, 255);
+        SDL_RenderClear(sdlRenderer);
+        renderSinkBackFaces(sdlRenderer, sink);
+        updateSimulation(particles, particleCount, sink, mass);
+        for (int i = 0; i < particleCount; i++)
         {
-            SDL_SetRenderDrawColor(sdlRenderer, 0, 0, 0, 255);
-            SDL_RenderClear(sdlRenderer);
-            renderSinkBackFaces(sdlRenderer, sink);
-            updateSimulation(particles, particleCount, sink, mass);
-            for (int i = 0; i < particleCount; i++)
+            Vec3 screenCoord = particles[i].position;
+            if (screenCoord.x == -1)
             {
-                Vec2 screenCoord = worldToScreen(particles[i].position);
-                if (screenCoord.x == -1)
-                {
-                    continue;
-                }
-                SDL_SetRenderDrawColor(sdlRenderer, 18, 149, 217, 255);
-                SDL_RenderDrawPoint(sdlRenderer, screenCoord.x, screenCoord.y);
+                continue;
             }
-            renderSinkFrontFaces(sdlRenderer, sink);
-            next_frame_time += time_step;
-            SDL_RenderPresent(sdlRenderer);
+            SDL_SetRenderDrawColor(sdlRenderer, 18, 149, 217, 255);
+            SDL_RenderDrawPoint(sdlRenderer, screenCoord.x, screenCoord.y);
         }
-        else
-        {
-            SDL_Delay(next_frame_time - now);
-        }
+        renderSinkFrontFaces(sdlRenderer, sink);
+        SDL_RenderPresent(sdlRenderer);
     }
 
     SDL_DestroyRenderer(sdlRenderer);
