@@ -1,19 +1,12 @@
 #pragma once
 #define SCREEN_WIDTH 1000
 #define SCREEN_HEIGHT 800
-#define DEPTH 255
 #define SCREEN_SIZE (SCREEN_WIDTH * SCREEN_HEIGHT)
-#define FPS 30
-#define MAX_PARTICLES 5000
-#define KERNEL_RADIUS 0.04f
-#define POLY6_KERNEL 315.0/(64.0 * PI * pow(KERNEL_RADIUS, 9))
-#define SELF_DENSITY_FACTOR POLY6_KERNEL * pow(KERNEL_RADIUS, 6)
-#define REST_DENSITY 1000.0
-#define STIFFNESS 1.0f
-#define VISC_LAP 45.0f / (PI*pow(KERNEL_RADIUS, 6))
-#define SPIKY_GRAD (-VISC_LAP)
-#define VISCOSITY 6.5f
-#define DELTA_T 0.003f
+#define FPS 60
+#define KERNEL_RADIUS 5e-2f
+#define REST_DENSITY 1000.0f
+#define STIFFNESS 1e3
+#define VISCOSITY 0.1f
+#define DELTA_T 1e-4
 #define GRAVITY -9.8f
-#define BOUND_DAMPING -0.5f
-#define BOUNDARY 0.005
+#define REFLECT_DAMP 0.75f
