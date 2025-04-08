@@ -20,7 +20,7 @@ public:
 /**
  * Create particles
  */
- Particle *initParticles(int particleCount, float *mass, Sink &sink);
+ Particle *initParticles(int &particleCount, float &mass, Sink &sink);
  void initSimulation(Particle *particles, int particleCount, const Sink &sink, float mass);
 /**
  * Compute interaction and update the particles

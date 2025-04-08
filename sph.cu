@@ -1,10 +1,10 @@
 #include <iostream>
 #include "sph.h"
 
-__global__ void computeDensity(Particle *particles, int particleCount, float mass)
+__global__ void computeDensity(Particle *particles, int particlesCount, float mass)
 {
     int i = blockDim.x * blockIdx.x + threadIdx.x;
-    if (i >= particleCount)
+    if (i >= particlesCount)
     {
         return;
     }
@@ -15,7 +15,7 @@ __global__ void computeDensity(Particle *particles, int particleCount, float mas
     float C = 4 * mass / M_PI / h8;
     // naive method. iterate over all the other particles
     particles[i].density += 4 * mass / M_PI / h2;
-    for (int j = 0; j < particleCount; j++)
+    for (int j = 0; j < particlesCount; j++)
     {
         if (i == j)
         {
@@ -32,10 +32,10 @@ __global__ void computeDensity(Particle *particles, int particleCount, float mas
     }
 }
 
-__global__ void computeAccel(Particle *particles, int particleCount, float mass)
+__global__ void computeAccel(Particle *particles, int particlesCount, float mass)
 {
     int i = blockDim.x * blockIdx.x + threadIdx.x;
-    if (i >= particleCount)
+    if (i >= particlesCount)
     {
         return;
     }
@@ -49,7 +49,7 @@ __global__ void computeAccel(Particle *particles, int particleCount, float mass)
     float Cv = -40.0f * VISCOSITY;
 
     // naive method. iterate over all the other particles
-    for (int j = 0; j < particleCount; j++)
+    for (int j = 0; j < particlesCount; j++)
     {
         if (i == j)
         {
@@ -74,13 +74,13 @@ __global__ void computeAccel(Particle *particles, int particleCount, float mass)
     }
 }
 
-float normalizeMass(Particle *particles, int particleCount)
+float normalizeMass(Particle *particles, int particlesCount)
 {
     float mass = 1.0f;
     int blockDim = 32;
-    int gridDim = (particleCount + (blockDim - 1)) / blockDim;
+    int gridDim = (particlesCount + (blockDim - 1)) / blockDim;
     cudaError_t err;
-    computeDensity<<<gridDim, blockDim>>>(particles, particleCount, mass);
+    computeDensity<<<gridDim, blockDim>>>(particles, particlesCount, mass);
     cudaDeviceSynchronize();
     if ((err = cudaGetLastError()) != cudaSuccess)
     {
@@ -89,7 +89,7 @@ float normalizeMass(Particle *particles, int particleCount)
     float rho0 = REST_DENSITY;
     float rho2s = 0.0f;
     float rhos = 0.0f;
-    for (int i = 0; i < particleCount; i++)
+    for (int i = 0; i < particlesCount; i++)
     {
         rho2s += particles[i].density * particles[i].density;
         rhos += particles[i].density;
@@ -99,22 +99,52 @@ float normalizeMass(Particle *particles, int particleCount)
     return mass;
 }
 
-Particle *initParticles(int particleCount, float *mass, Sink &sink)
-{
-    Particle *particles;
-    cudaMallocManaged(&particles, particleCount * sizeof(Particle));
-    srand(time(0));
-    for (int i = 0; i < particleCount; i++)
-    {
-        particles[i].density = 0.0f;
-        particles[i].velocity = Vec3(0.0f, 0.0f, 0.0f);
-        particles[i].velocityHalf = Vec3(0.0f, 0.0f, 0.0f);
-        particles[i].acceleration = Vec3(0.0f, 0.0f, 0.0f);
-        particles[i].position.x = ((float)rand() / RAND_MAX) * sink.xLen - sink.xLen / 2;
-        particles[i].position.y = ((float)rand() / RAND_MAX) * sink.yLen - sink.yLen / 2;
-        particles[i].position.z = ((float)rand() / RAND_MAX) * sink.zLen - sink.zLen / 2;
+Particle * placeParticles(int &particlesCount, int droppingParticlesCount, Sink &sink) {
+    float h = KERNEL_RADIUS;
+    float hh = h / 1.3f;
+    int particlesInSink = 0;
+    for (float x = -sink.xLen / 2.0f; x <= sink.xLen / 2.0f; x += hh) {
+        for (float z = -sink.zLen / 2.0f; z <= sink.zLen / 2.0f; z += hh) {
+            for (float y = -sink.yLen / 2.0f; y <= 0; y += hh) {
+                particlesInSink++;
+            }
+        }
     }
-    *mass = normalizeMass(particles, particleCount);
+    particlesCount = particlesInSink + droppingParticlesCount;
+    std::cout << "Particle Count: " << particlesCount << std::endl;
+    Particle *particles;
+    cudaMallocManaged(&particles, particlesCount * sizeof(Particle));
+    int count = 0;
+    for (float x = -sink.xLen / 2.0f; x <= sink.xLen / 2.0f; x += hh) {
+        for (float z = -sink.zLen / 2.0f; z <= sink.zLen / 2.0f; z += hh) {
+            for (float y = -sink.yLen / 2.0f; y <= 0; y += hh) {
+                particles[count].position = {x, y, z};
+                particles[count].density = 0.0f;
+                particles[count].velocity = {0.0f, 0.0f, 0.0f};
+                particles[count].velocityHalf = {0.0f, 0.0f, 0.0f};
+                particles[count].acceleration = {0.0f, 0.0f, 0.0f};
+                count++;
+            }
+        }
+    }
+    srand(time(0));
+    for (int i = particlesInSink; i < particlesCount; i++) {
+        particles[i].position.x = ((float)rand() / RAND_MAX) * sink.xLen / 5.0f - sink.xLen / 10.0f;
+        particles[i].position.y = ((float)rand() / RAND_MAX) * sink.yLen;
+        particles[i].position.z = ((float)rand() / RAND_MAX) * sink.zLen / 5.0f - sink.zLen / 10.0f;
+        particles[i].density = 0.0f;
+        particles[i].velocity = {0.0f, 0.0f, 0.0f};
+        particles[i].velocityHalf = {0.0f, 0.0f, 0.0f};
+        particles[i].acceleration = {0.0f, 0.0f, 0.0f};
+    }
+    return particles;
+}
+
+Particle *initParticles(int &particlesCount, float &mass, Sink &sink)
+{
+    int droppingParticlesCount = 0;
+    Particle *particles = placeParticles(particlesCount, droppingParticlesCount, sink);
+    mass = normalizeMass(particles, particlesCount - droppingParticlesCount);
     return particles;
 }
 
@@ -197,10 +227,10 @@ __device__ void reflect(Particle &particle, float xLen, float yLen, float zLen)
     }
 }
 
-__global__ void leapfrogStart(Particle *particles, int particleCount, float xLen, float yLen, float zLen)
+__global__ void leapfrogStart(Particle *particles, int particlesCount, float xLen, float yLen, float zLen)
 {
     int i = blockDim.x * blockIdx.x + threadIdx.x;
-    if (i >= particleCount)
+    if (i >= particlesCount)
     {
         return;
     }
@@ -216,10 +246,10 @@ __global__ void leapfrogStart(Particle *particles, int particleCount, float xLen
     reflect(particles[i], xLen, yLen, zLen);
 }
 
-__global__ void leapfrogStep(Particle *particles, int particleCount, float xLen, float yLen, float zLen)
+__global__ void leapfrogStep(Particle *particles, int particlesCount, float xLen, float yLen, float zLen)
 {
     int i = blockDim.x * blockIdx.x + threadIdx.x;
-    if (i >= particleCount)
+    if (i >= particlesCount)
     {
         return;
     }
@@ -235,24 +265,24 @@ __global__ void leapfrogStep(Particle *particles, int particleCount, float xLen,
     reflect(particles[i], xLen, yLen, zLen);
 }
 
-void initSimulation(Particle *particles, int particleCount, const Sink &sink, float mass)
+void initSimulation(Particle *particles, int particlesCount, const Sink &sink, float mass)
 {
     int blockDim = 32;
-    int gridDim = (particleCount + (blockDim - 1)) / blockDim;
+    int gridDim = (particlesCount + (blockDim - 1)) / blockDim;
     cudaError_t err;
-    computeDensity<<<gridDim, blockDim>>>(particles, particleCount, mass);
+    computeDensity<<<gridDim, blockDim>>>(particles, particlesCount, mass);
     cudaDeviceSynchronize(); // computing acceleration needs all particles' density
     if ((err = cudaGetLastError()) != cudaSuccess)
     {
         std::cerr << "Kernel error (computeDensity): " << cudaGetErrorString(err) << std::endl;
     }
-    computeAccel<<<gridDim, blockDim>>>(particles, particleCount, mass);
+    computeAccel<<<gridDim, blockDim>>>(particles, particlesCount, mass);
     if ((err = cudaGetLastError()) != cudaSuccess)
     {
         std::cerr << "Kernel error (ComputeAccel): " << cudaGetErrorString(err) << std::endl;
     }
     // no need to synchronize between computing acceleration and integration
-    leapfrogStart<<<gridDim, blockDim>>>(particles, particleCount, sink.xLen, sink.yLen, sink.zLen);
+    leapfrogStart<<<gridDim, blockDim>>>(particles, particlesCount, sink.xLen, sink.yLen, sink.zLen);
     cudaDeviceSynchronize();
     if ((err = cudaGetLastError()) != cudaSuccess)
     {
@@ -260,24 +290,24 @@ void initSimulation(Particle *particles, int particleCount, const Sink &sink, fl
     }
 }
 
-void updateSimulation(Particle *particles, int particleCount, const Sink &sink, float mass)
+void updateSimulation(Particle *particles, int particlesCount, const Sink &sink, float mass)
 {
     int blockDim = 32;
-    int gridDim = (particleCount + (blockDim - 1)) / blockDim;
+    int gridDim = (particlesCount + (blockDim - 1)) / blockDim;
     cudaError_t err;
-    computeDensity<<<gridDim, blockDim>>>(particles, particleCount, mass);
+    computeDensity<<<gridDim, blockDim>>>(particles, particlesCount, mass);
     cudaDeviceSynchronize(); // computing acceleration needs all particles' density
     if ((err = cudaGetLastError()) != cudaSuccess)
     {
         std::cerr << "Kernel error (computeDensity): " << cudaGetErrorString(err) << std::endl;
     }
-    computeAccel<<<gridDim, blockDim>>>(particles, particleCount, mass);
+    computeAccel<<<gridDim, blockDim>>>(particles, particlesCount, mass);
     if ((err = cudaGetLastError()) != cudaSuccess)
     {
         std::cerr << "Kernel error (ComputeAccel): " << cudaGetErrorString(err) << std::endl;
     }
     // no need to synchronize between computing acceleration and integration
-    leapfrogStep<<<gridDim, blockDim>>>(particles, particleCount, sink.xLen, sink.yLen, sink.zLen);
+    leapfrogStep<<<gridDim, blockDim>>>(particles, particlesCount, sink.xLen, sink.yLen, sink.zLen);
     cudaDeviceSynchronize();
     if ((err = cudaGetLastError()) != cudaSuccess)
     {

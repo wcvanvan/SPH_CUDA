@@ -6,7 +6,7 @@
 #define KERNEL_RADIUS 5e-2f
 #define REST_DENSITY 1000.0f
 #define STIFFNESS 1e3
-#define VISCOSITY 0.1f
+#define VISCOSITY 1.0f
 #define DELTA_T 1e-4
 #define GRAVITY -9.8f
 #define REFLECT_DAMP 0.75f
