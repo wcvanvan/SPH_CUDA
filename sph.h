@@ -10,12 +10,10 @@ class Particle
 public:
     Particle(Vec3 position, int id);
     float density = 0.0f;
-    float pressure = 0.0f;
 
     Vec3 position;
     Vec3 velocity;
     Vec3 velocityHalf;
-    Vec3 evelocity;
     Vec3 acceleration;
 };
 

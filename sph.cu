@@ -26,11 +26,9 @@ __global__ void computeDensity(Particle *particles, int particleCount, float mas
         float dz = particles[i].position.z - particles[j].position.z;
         float r2 = dx * dx + dy * dy + dz * dz;
         float z = h2 - r2;
-        if (z > 0)
-        {
-            float rho = C * z * z * z;
-            particles[i].density += rho;
-        }
+        if (z <= 0) continue;
+        float rho = C * z * z * z;
+        particles[i].density += rho;
     }
 }
 
@@ -61,10 +59,7 @@ __global__ void computeAccel(Particle *particles, int particleCount, float mass)
         float dy = particles[i].position.y - particles[j].position.y;
         float dz = particles[i].position.z - particles[j].position.z;
         float r2 = dx * dx + dy * dy + dz * dz;
-        if (r2 >= h2 || r2 < 1e-12)
-        {
-            continue;
-        }
+        if (r2 >= h2) continue;
         float q = sqrt(r2) / KERNEL_RADIUS;
         float u = 1 - q;
         float w0 = C0 * u / particles[i].density / particles[j].density;
@@ -89,7 +84,7 @@ float normalizeMass(Particle *particles, int particleCount)
     cudaDeviceSynchronize();
     if ((err = cudaGetLastError()) != cudaSuccess)
     {
-        std::cerr << "Kernel error: " << cudaGetErrorString(err) << std::endl;
+        std::cerr << "Kernel error (computeDensity): " << cudaGetErrorString(err) << std::endl;
     }
     float rho0 = REST_DENSITY;
     float rho2s = 0.0f;
@@ -121,101 +116,121 @@ Particle *initParticles(int particleCount, float *mass, Sink &sink)
     return particles;
 }
 
-void reflect(Particle &particle, const Sink &sink)
+__device__ void reflect(Particle &particle, float xLen, float yLen, float zLen)
 {
-    const float DAMP = 0.75f;
     float tbounce = 0.0f;
-    if (particle.position.x > sink.xLen / 2 || particle.position.x < -sink.xLen / 2)
+    if (particle.velocity.x != 0 && (particle.position.x > xLen / 2 || particle.position.x < -xLen / 2))
     {
-        if (particle.position.x > sink.xLen / 2)
+        if (particle.position.x > xLen / 2)
         {
-            tbounce = (particle.position.x - sink.xLen / 2) / particle.velocity.x;
-            particle.position.x = sink.xLen - particle.position.x;
+            tbounce = (particle.position.x - xLen / 2) / particle.velocity.x;
+            particle.position.x = xLen - particle.position.x;
         }
         else
         {
-            tbounce = (particle.position.x + sink.xLen / 2) / particle.velocity.x;
-            particle.position.x = -sink.xLen - particle.position.x;
+            tbounce = (particle.position.x + xLen / 2) / particle.velocity.x;
+            particle.position.x = -xLen - particle.position.x;
         }
-        particle.position.y -= particle.velocity.y * (1 - DAMP) * tbounce;
-        particle.position.z -= particle.velocity.z * (1 - DAMP) * tbounce;
+        // revert the movement for the period
+        particle.position.y -= particle.velocity.y * (1 - REFLECT_DAMP) * tbounce;
+        particle.position.z -= particle.velocity.z * (1 - REFLECT_DAMP) * tbounce;
         particle.velocity.x = -particle.velocity.x;
         particle.velocityHalf.x = -particle.velocityHalf.x;
-        particle.velocity.x *= DAMP;
-        particle.velocity.y *= DAMP;
-        particle.velocity.z *= DAMP;
-        particle.velocityHalf.x *= DAMP;
-        particle.velocityHalf.y *= DAMP;
-        particle.velocityHalf.z *= DAMP;
+        particle.velocity.x *= REFLECT_DAMP;
+        particle.velocity.y *= REFLECT_DAMP;
+        particle.velocity.z *= REFLECT_DAMP;
+        particle.velocityHalf.x *= REFLECT_DAMP;
+        particle.velocityHalf.y *= REFLECT_DAMP;
+        particle.velocityHalf.z *= REFLECT_DAMP;
     }
-    if (particle.position.y > sink.yLen / 2 || particle.position.y < -sink.yLen / 2)
+    if (particle.velocity.y != 0 && (particle.position.y > yLen / 2 || particle.position.y < -yLen / 2))
     {
-        if (particle.position.y > sink.yLen / 2)
+        // bounce back
+        if (particle.position.y > yLen / 2)
         {
-            tbounce = (particle.position.y - sink.yLen / 2) / particle.velocity.y;
-            particle.position.y = sink.yLen - particle.position.y;
+            tbounce = (particle.position.y - yLen / 2) / particle.velocity.y;
+            particle.position.y = yLen - particle.position.y;
         }
         else
         {
-            tbounce = (particle.position.y + sink.yLen / 2) / particle.velocity.y;
-            particle.position.y = -sink.yLen - particle.position.y;
+            tbounce = (particle.position.y + yLen / 2) / particle.velocity.y;
+            particle.position.y = -yLen - particle.position.y;
         }
-        particle.position.x -= particle.velocity.x * (1 - DAMP) * tbounce;
-        particle.position.z -= particle.velocity.z * (1 - DAMP) * tbounce;
+        // revert the movement for the period
+        particle.position.x -= particle.velocity.x * (1 - REFLECT_DAMP) * tbounce;
+        particle.position.z -= particle.velocity.z * (1 - REFLECT_DAMP) * tbounce;
         particle.velocity.y = -particle.velocity.y;
         particle.velocityHalf.y = -particle.velocityHalf.y;
-        particle.velocity.x *= DAMP;
-        particle.velocity.y *= DAMP;
-        particle.velocity.z *= DAMP;
-        particle.velocityHalf.x *= DAMP;
-        particle.velocityHalf.y *= DAMP;
-        particle.velocityHalf.z *= DAMP;
+        particle.velocity.x *= REFLECT_DAMP;
+        particle.velocity.y *= REFLECT_DAMP;
+        particle.velocity.z *= REFLECT_DAMP;
+        particle.velocityHalf.x *= REFLECT_DAMP;
+        particle.velocityHalf.y *= REFLECT_DAMP;
+        particle.velocityHalf.z *= REFLECT_DAMP;
     }
-    if (particle.position.z > sink.zLen / 2 || particle.position.z < -sink.zLen / 2)
+    if (particle.velocity.z != 0 && (particle.position.z > zLen / 2 || particle.position.z < -zLen / 2))
     {
-        if (particle.position.z > sink.zLen / 2)
+        // bounce back
+        if (particle.position.z > zLen / 2)
         {
-            tbounce = (particle.position.z - sink.zLen / 2) / particle.velocity.z;
-            particle.position.z = sink.zLen - particle.position.z;
+            tbounce = (particle.position.z - zLen / 2) / particle.velocity.z;
+            particle.position.z = zLen - particle.position.z;
         }
         else
         {
-            tbounce = (particle.position.z + sink.zLen / 2) / particle.velocity.z;
-            particle.position.z = -sink.zLen - particle.position.z;
+            tbounce = (particle.position.z + zLen / 2) / particle.velocity.z;
+            particle.position.z = -zLen - particle.position.z;
         }
-        particle.position.x -= particle.velocity.x * (1 - DAMP) * tbounce;
-        particle.position.y -= particle.velocity.y * (1 - DAMP) * tbounce;
+        // revert the movement for the period
+        particle.position.x -= particle.velocity.x * (1 - REFLECT_DAMP) * tbounce;
+        particle.position.y -= particle.velocity.y * (1 - REFLECT_DAMP) * tbounce;
         particle.velocity.z = -particle.velocity.z;
         particle.velocityHalf.z = -particle.velocityHalf.z;
-        particle.velocity.x *= DAMP;
-        particle.velocity.y *= DAMP;
-        particle.velocity.z *= DAMP;
-        particle.velocityHalf.x *= DAMP;
-        particle.velocityHalf.y *= DAMP;
-        particle.velocityHalf.z *= DAMP;
+        particle.velocity.x *= REFLECT_DAMP;
+        particle.velocity.y *= REFLECT_DAMP;
+        particle.velocity.z *= REFLECT_DAMP;
+        particle.velocityHalf.x *= REFLECT_DAMP;
+        particle.velocityHalf.y *= REFLECT_DAMP;
+        particle.velocityHalf.z *= REFLECT_DAMP;
     }
 }
 
-void leapfrogStart(Particle *particles, int particleCount, const Sink &sink)
+__global__ void leapfrogStart(Particle *particles, int particleCount, float xLen, float yLen, float zLen)
 {
-    for (int i = 0; i < particleCount; i++)
+    int i = blockDim.x * blockIdx.x + threadIdx.x;
+    if (i >= particleCount)
     {
-        particles[i].velocityHalf = particles[i].velocity + particles[i].acceleration * DELTA_T / 2;
-        particles[i].velocity = particles[i].velocity + particles[i].acceleration * DELTA_T;
-        particles[i].position = particles[i].position + particles[i].velocityHalf * DELTA_T;
-        reflect(particles[i], sink);
+        return;
     }
+    particles[i].velocityHalf.x = particles[i].velocity.x + particles[i].acceleration.x * DELTA_T / 2;
+    particles[i].velocityHalf.y = particles[i].velocity.y + particles[i].acceleration.y * DELTA_T / 2;
+    particles[i].velocityHalf.z = particles[i].velocity.z + particles[i].acceleration.z * DELTA_T / 2;
+    particles[i].velocity.x = particles[i].velocity.x + particles[i].acceleration.x * DELTA_T;
+    particles[i].velocity.y = particles[i].velocity.y + particles[i].acceleration.y * DELTA_T;
+    particles[i].velocity.z = particles[i].velocity.z + particles[i].acceleration.z * DELTA_T;
+    particles[i].position.x = particles[i].position.x + particles[i].velocityHalf.x * DELTA_T;
+    particles[i].position.y = particles[i].position.y + particles[i].velocityHalf.y * DELTA_T;
+    particles[i].position.z = particles[i].position.z + particles[i].velocityHalf.z * DELTA_T;
+    reflect(particles[i], xLen, yLen, zLen);
 }
 
-void leapfrogStep(Particle *particles, int particleCount, const Sink &sink)
+__global__ void leapfrogStep(Particle *particles, int particleCount, float xLen, float yLen, float zLen)
 {
-    for (int i = 0; i < particleCount; i++)
+    int i = blockDim.x * blockIdx.x + threadIdx.x;
+    if (i >= particleCount)
     {
-        particles[i].velocityHalf = particles[i].velocityHalf + particles[i].acceleration * DELTA_T;
-        particles[i].velocity = particles[i].velocityHalf + particles[i].acceleration * DELTA_T / 2;
-        particles[i].position = particles[i].position + particles[i].velocityHalf * DELTA_T;
-        reflect(particles[i], sink);
+        return;
     }
+    particles[i].velocityHalf.x = particles[i].velocityHalf.x + particles[i].acceleration.x * DELTA_T;
+    particles[i].velocityHalf.y = particles[i].velocityHalf.y + particles[i].acceleration.y * DELTA_T;
+    particles[i].velocityHalf.z = particles[i].velocityHalf.z + particles[i].acceleration.z * DELTA_T;
+    particles[i].velocity.x = particles[i].velocityHalf.x + particles[i].acceleration.x * DELTA_T / 2;
+    particles[i].velocity.y = particles[i].velocityHalf.y + particles[i].acceleration.y * DELTA_T / 2;
+    particles[i].velocity.z = particles[i].velocityHalf.z + particles[i].acceleration.z * DELTA_T / 2;
+    particles[i].position.x = particles[i].position.x + particles[i].velocityHalf.x * DELTA_T;
+    particles[i].position.y = particles[i].position.y + particles[i].velocityHalf.y * DELTA_T;
+    particles[i].position.z = particles[i].position.z + particles[i].velocityHalf.z * DELTA_T;
+    reflect(particles[i], xLen, yLen, zLen);
 }
 
 void initSimulation(Particle *particles, int particleCount, const Sink &sink, float mass)
@@ -224,14 +239,23 @@ void initSimulation(Particle *particles, int particleCount, const Sink &sink, fl
     int gridDim = (particleCount + (blockDim - 1)) / blockDim;
     cudaError_t err;
     computeDensity<<<gridDim, blockDim>>>(particles, particleCount, mass);
-    cudaDeviceSynchronize();
+    cudaDeviceSynchronize(); // computing acceleration needs all particles' density
+    if ((err = cudaGetLastError()) != cudaSuccess)
+    {
+        std::cerr << "Kernel error (computeDensity): " << cudaGetErrorString(err) << std::endl;
+    }
     computeAccel<<<gridDim, blockDim>>>(particles, particleCount, mass);
+    if ((err = cudaGetLastError()) != cudaSuccess)
+    {
+        std::cerr << "Kernel error (ComputeAccel): " << cudaGetErrorString(err) << std::endl;
+    }
+    // no need to synchronize between computing acceleration and integration
+    leapfrogStart<<<gridDim, blockDim>>>(particles, particleCount, sink.xLen, sink.yLen, sink.zLen);
     cudaDeviceSynchronize();
     if ((err = cudaGetLastError()) != cudaSuccess)
     {
-        std::cerr << "Kernel error: " << cudaGetErrorString(err) << std::endl;
+        std::cerr << "Kernel error (leapfrogStart): " << cudaGetErrorString(err) << std::endl;
     }
-    leapfrogStart(particles, particleCount, sink);
 }
 
 void updateSimulation(Particle *particles, int particleCount, const Sink &sink, float mass)
@@ -240,12 +264,21 @@ void updateSimulation(Particle *particles, int particleCount, const Sink &sink, 
     int gridDim = (particleCount + (blockDim - 1)) / blockDim;
     cudaError_t err;
     computeDensity<<<gridDim, blockDim>>>(particles, particleCount, mass);
-    cudaDeviceSynchronize();
+    cudaDeviceSynchronize(); // computing acceleration needs all particles' density
+    if ((err = cudaGetLastError()) != cudaSuccess)
+    {
+        std::cerr << "Kernel error (computeDensity): " << cudaGetErrorString(err) << std::endl;
+    }
     computeAccel<<<gridDim, blockDim>>>(particles, particleCount, mass);
+    if ((err = cudaGetLastError()) != cudaSuccess)
+    {
+        std::cerr << "Kernel error (ComputeAccel): " << cudaGetErrorString(err) << std::endl;
+    }
+    // no need to synchronize between computing acceleration and integration
+    leapfrogStep<<<gridDim, blockDim>>>(particles, particleCount, sink.xLen, sink.yLen, sink.zLen);
     cudaDeviceSynchronize();
     if ((err = cudaGetLastError()) != cudaSuccess)
     {
-        std::cerr << "Kernel error: " << cudaGetErrorString(err) << std::endl;
+        std::cerr << "Kernel error (leapfrogStep): " << cudaGetErrorString(err) << std::endl;
     }
-    leapfrogStep(particles, particleCount, sink);
 }
