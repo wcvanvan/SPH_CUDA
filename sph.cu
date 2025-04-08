@@ -106,7 +106,9 @@ Particle *initParticles(int particleCount, float *mass, Sink &sink)
     srand(time(0));
     for (int i = 0; i < particleCount; i++)
     {
+        particles[i].density = 0.0f;
         particles[i].velocity = Vec3(0.0f, 0.0f, 0.0f);
+        particles[i].velocityHalf = Vec3(0.0f, 0.0f, 0.0f);
         particles[i].acceleration = Vec3(0.0f, 0.0f, 0.0f);
         particles[i].position.x = ((float)rand() / RAND_MAX) * sink.xLen - sink.xLen / 2;
         particles[i].position.y = ((float)rand() / RAND_MAX) * sink.yLen - sink.yLen / 2;
