@@ -139,7 +139,7 @@ int main(int argc, char *args[])
         updateSimulation(particles, particleCount, sink, mass);
         for (int i = 0; i < particleCount; i++)
         {
-            Vec3 screenCoord = particles[i].position;
+            Vec2 screenCoord = worldToScreen(particles[i].position);
             if (screenCoord.x == -1)
             {
                 continue;
