@@ -11,7 +11,7 @@ LIBS=$(foreach d, $(LIB_DIRS), -L$d)
 
 # Clean target (doesn't require mode)
 clean:
-	rm -f *.o SPH_CUDA Visualizer
+	rm -f *.o particles.dat SPH_CUDA Visualizer
 
 # Check mode parameter for non-clean targets
 ifeq ($(filter clean,$(MAKECMDGOALS)),)

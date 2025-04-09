@@ -1,0 +1,4 @@
+*.o
+particles.dat
+SPH_CUDA
+Visualizer
