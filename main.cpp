@@ -11,7 +11,6 @@
 #include "sink.h"
 #include "vec.h"
 
-int frames = 1000;
 const char *filename = "./particles.dat";
 struct FrameData {
     std::vector<std::vector<Vec2>> frames;
@@ -78,7 +77,7 @@ int main(int argc, char *args[])
     initSimulation(particles, particleCount, sink, mass, transformMatOnGPU);
     FrameData frameData;
     int count = 0;
-    while (count < frames)
+    while (count < FRAMES)
     {
         std::cout << "FRAME: " << count << std::endl;
         updateSimulation(particles, particleCount, sink, mass, transformMatOnGPU);

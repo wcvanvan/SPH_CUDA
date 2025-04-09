@@ -12,7 +12,6 @@
 #include "vec.h"
 
 Mat4 transformMat;
-int frames = 1000;
 const char *filename = "./particles.dat";
 struct FrameData {
     std::vector<std::vector<Vec2>> frames;
@@ -167,7 +166,7 @@ int main()
     Uint32 frameStart = 0;
     Uint32 frameTime = 0;
     int count = 0;
-    while (count < frames)
+    while (count < FRAMES)
     {
         Uint32 currentTime = SDL_GetTicks();
         frameTime = frameStart > 0 ? currentTime - frameStart : 0;
