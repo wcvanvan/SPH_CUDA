@@ -4,8 +4,6 @@
 #include <iostream>
 #include <string.h>
 #include <assert.h>
-#include <SDL2/SDL.h>
-#include "SDL2_gfxPrimitives.h"
 #include "const.h"
 #include "sph.h"
 #include "sink.h"
@@ -13,32 +11,21 @@
 
 const char *filename = "./particles.dat";
 struct FrameData {
-    std::vector<std::vector<Vec2>> frames;
+    std::vector<std::vector<Vec2>*> frames;
+    ~FrameData() {
+        for (auto frame : frames) delete frame;
+    }
 };
 
-void writePosToFile(FILE *file, Particle *particles, int particleCount)
-{
-    fprintf(file, "FRAMESTART\n");
-    for (int i = 0; i < particleCount; i++)
-    {
-        if (particles[i].screenPos.x == -1)
-        {
-            continue; // Skip particles that are not visible
-        }
-        fprintf(file, "%.2f %.2f\n", particles[i].screenPos.x, particles[i].screenPos.y);
-    }
-    fprintf(file, "FRAMEEND\n");
-    fflush(file);
-}
-
-void writeDataToFile(FILE *file, const FrameData &frameData, int particleCount)
+void writeDataToFile(FILE *file, const FrameData *frameData, int particleCount)
 {
     fprintf(file, "%d\n", particleCount);
-    
-    for (auto &&frame : frameData.frames)
+    int count = 0;
+    for (auto &&frame : frameData->frames)
     {
+        std::cout << "frame " << count++ << std::endl;
         fprintf(file, "FRAMESTART\n");
-        for (const auto &pos : frame)
+        for (const auto &pos : *frame)
         {
             fprintf(file, "%.2f %.2f\n", pos.x, pos.y);
         }
@@ -73,23 +60,22 @@ int main(int argc, char *args[])
     int particleCount = 0;
     float mass = 1.0f;
     Particle *particles = initParticles(particleCount, mass, sink);
-    fprintf(file, "%d\n", particleCount);
     initSimulation(particles, particleCount, sink, mass, transformMatOnGPU);
-    FrameData frameData;
+    FrameData *frameData = new FrameData();
     int count = 0;
     while (count < FRAMES)
     {
-        std::cout << "FRAME: " << count << std::endl;
         updateSimulation(particles, particleCount, sink, mass, transformMatOnGPU);
-        std::vector<Vec2> framePositions;
-        framePositions.reserve(particleCount);
+        std::vector<Vec2> *framePositions = new std::vector<Vec2>();
+        framePositions->reserve(particleCount);
         for (int i = 0; i < particleCount; i++)
         {
-            framePositions.push_back(particles[i].screenPos);
+            framePositions->push_back(particles[i].screenPos);
         }
-        frameData.frames.push_back(framePositions);
+        frameData->frames.push_back(framePositions);
         count++;
     }
     writeDataToFile(file, frameData, particleCount);
+    delete frameData;
     return 0;
 }
