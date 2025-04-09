@@ -105,13 +105,15 @@ int main(int argc, char *args[])
     float far = 10.0f;
     projMat = proj(fov, near, far, aspectRatio);
     viewMat = lookat(camera, center, up);
+    Mat4 transformMat = projMat * viewMat;
+    float *transformMatOnGPU = allocateMatOnGPU(transformMat);
 
     // Init scene
     Sink sink;
     int particleCount = 0;
     float mass = 1.0f;
-    Particle *particles = initParticles(particleCount, mass, sink);
-    initSimulation(particles, particleCount, sink, mass);
+    Particle *particles = initParticles(particleCount, mass, sink );
+    initSimulation(particles, particleCount, sink, mass, transformMatOnGPU);
 
     // Uint32 frameStart = 0;
     // Uint32 frameTime = 0;
@@ -136,16 +138,15 @@ int main(int argc, char *args[])
         SDL_SetRenderDrawColor(sdlRenderer, 0, 0, 0, 255);
         SDL_RenderClear(sdlRenderer);
         renderSinkBackFaces(sdlRenderer, sink);
-        updateSimulation(particles, particleCount, sink, mass);
+        updateSimulation(particles, particleCount, sink, mass, transformMatOnGPU);
         for (int i = 0; i < particleCount; i++)
         {
-            Vec2 screenCoord = worldToScreen(particles[i].position);
-            if (screenCoord.x == -1)
+            if (particles[i].screenPos.x == -1)
             {
                 continue;
             }
             SDL_SetRenderDrawColor(sdlRenderer, 18, 149, 217, 255);
-            SDL_RenderDrawPoint(sdlRenderer, screenCoord.x, screenCoord.y);
+            SDL_RenderDrawPoint(sdlRenderer, particles[i].screenPos.x, particles[i].screenPos.y);
         }
         renderSinkFrontFaces(sdlRenderer, sink);
         SDL_RenderPresent(sdlRenderer);

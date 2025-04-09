@@ -1,5 +1,20 @@
 #include <iostream>
 #include "sph.h"
+#include "const.h"
+
+float *allocateMatOnGPU(Mat4 &mat) {
+    float data[16];
+    int count = 0;
+    for (int i = 0; i < 4; i++) {
+        for (int j = 0; j < 4; j++) {
+            data[count++] = mat[i][j];
+        }
+    }
+    float* matOnGPU;
+    cudaMalloc((void**)&matOnGPU, 16 * sizeof(float));
+    cudaMemcpy(matOnGPU, data, 16 * sizeof(float), cudaMemcpyHostToDevice);
+    return matOnGPU;
+}
 
 __global__ void computeDensity(Particle *particles, int particlesCount, float mass)
 {
@@ -265,7 +280,40 @@ __global__ void leapfrogStep(Particle *particles, int particlesCount, float xLen
     reflect(particles[i], xLen, yLen, zLen);
 }
 
-void initSimulation(Particle *particles, int particlesCount, const Sink &sink, float mass)
+__global__ void coordTransform(Particle *particles, int particlesCount, float *transformMat) {
+    int i = blockDim.x * blockIdx.x + threadIdx.x;
+    if (i >= particlesCount)
+    {
+        return;
+    }
+    float worldPos[4], result[4];
+    worldPos[0] = particles[i].position.x;
+    worldPos[1] = particles[i].position.y;
+    worldPos[2] = particles[i].position.z;
+    worldPos[3] = 1.0f;
+    for (int i = 0; i < 4; i++)
+    {
+        result[i] = 0.0f;
+        for (int j = 0; j < 4; j++)
+        {
+            result[i] += transformMat[i * 4 + j] * worldPos[j];
+        }
+    }
+    float x = result[0] / result[3];
+    float y = result[1] / result[3];
+
+    if (x < -1.0f || x > 1.0f || y < -1.0f || y > 1.0f) {
+        particles[i].screenPos.x = -1.0f;
+        particles[i].screenPos.y = -1.0f;
+    } else {
+        float screenX = fmaxf(0.0f, fminf(1.0f, (x + 1.0f) * 0.5f)) * SCREEN_WIDTH;
+        float screenY = fmaxf(0.0f, fminf(1.0f, (1.0f - y) * 0.5f)) * SCREEN_HEIGHT;
+        particles[i].screenPos.x = screenX;
+        particles[i].screenPos.y = screenY;
+    }
+}
+
+void initSimulation(Particle *particles, int particlesCount, const Sink &sink, float mass, float *transformMat)
 {
     int blockDim = 32;
     int gridDim = (particlesCount + (blockDim - 1)) / blockDim;
@@ -283,14 +331,15 @@ void initSimulation(Particle *particles, int particlesCount, const Sink &sink, f
     }
     // no need to synchronize between computing acceleration and integration
     leapfrogStart<<<gridDim, blockDim>>>(particles, particlesCount, sink.xLen, sink.yLen, sink.zLen);
+    coordTransform<<<gridDim, blockDim>>>(particles, particlesCount,transformMat);
     cudaDeviceSynchronize();
     if ((err = cudaGetLastError()) != cudaSuccess)
     {
-        std::cerr << "Kernel error (leapfrogStart): " << cudaGetErrorString(err) << std::endl;
+        std::cerr << "Kernel error (leapfrogStart or coordTransform): " << cudaGetErrorString(err) << std::endl;
     }
 }
 
-void updateSimulation(Particle *particles, int particlesCount, const Sink &sink, float mass)
+void updateSimulation(Particle *particles, int particlesCount, const Sink &sink, float mass, float *transformMat)
 {
     int blockDim = 32;
     int gridDim = (particlesCount + (blockDim - 1)) / blockDim;
@@ -308,9 +357,10 @@ void updateSimulation(Particle *particles, int particlesCount, const Sink &sink,
     }
     // no need to synchronize between computing acceleration and integration
     leapfrogStep<<<gridDim, blockDim>>>(particles, particlesCount, sink.xLen, sink.yLen, sink.zLen);
+    coordTransform<<<gridDim, blockDim>>>(particles, particlesCount,transformMat);
     cudaDeviceSynchronize();
     if ((err = cudaGetLastError()) != cudaSuccess)
     {
-        std::cerr << "Kernel error (leapfrogStep): " << cudaGetErrorString(err) << std::endl;
+        std::cerr << "Kernel error (leapfrogStart or coordTransform): " << cudaGetErrorString(err) << std::endl;
     }
 }

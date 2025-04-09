@@ -102,7 +102,7 @@ Mat4::Mat4()
     this->data = std::vector<std::vector<float>>(4, std::vector<float>(4, 0.0f));
 }
 
-std::vector<float> &Mat4::operator[](const int row)
+std::vector<float> &Mat4::operator[](int row)
 {
     assert(row >= 0 && row < 4);
     return data[row];
@@ -155,4 +155,16 @@ Vec4 Mat4::operator*(Vec4 &v)
         }
     }
     return result;
+}
+
+Mat4 Mat4::operator*(Mat4 &m) {
+    Mat4 result;
+    for (int i = 0; i < 4; i++) {     
+        for (int j = 0; j < 4; j++) {  
+            for (int k = 0; k < 4; k++) { 
+                result[i][j] += data[i][k] * m[k][j];
+            }
+        }
+    }
+    return result;   
 }

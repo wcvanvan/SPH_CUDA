@@ -12,6 +12,7 @@ public:
     float density = 0.0f;
 
     Vec3 position;
+    Vec2 screenPos;
     Vec3 velocity;
     Vec3 velocityHalf;
     Vec3 acceleration;
@@ -21,9 +22,10 @@ public:
  * Create particles
  */
  Particle *initParticles(int &particleCount, float &mass, Sink &sink);
- void initSimulation(Particle *particles, int particleCount, const Sink &sink, float mass);
+ void initSimulation(Particle *particles, int particleCount, const Sink &sink, float mass, float *transformMat);
 /**
  * Compute interaction and update the particles
  */
- void updateSimulation(Particle *particles, int particleCount, const Sink &sink, float mass);
+ void updateSimulation(Particle *particles, int particleCount, const Sink &sink, float mass, float *transformMat);
+ float *allocateMatOnGPU(Mat4 &mat);
 

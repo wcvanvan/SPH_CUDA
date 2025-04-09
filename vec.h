@@ -59,8 +59,9 @@ class Mat4
 
 public:
     Mat4();
-    std::vector<float> &operator[](const int row);
+    std::vector<float> &operator[](int row);
     Vec4 operator*(Vec4 &v);
+    Mat4 operator*(Mat4 &m);
 };
 
 Mat4 lookat(Vec3 &eye, Vec3 &center, Vec3 &up);
