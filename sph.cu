@@ -145,7 +145,7 @@ Particle * placeParticles(int &particlesCount, int droppingParticlesCount, Sink 
     srand(time(0));
     for (int i = particlesInSink; i < particlesCount; i++) {
         particles[i].position.x = ((float)rand() / RAND_MAX) * sink.xLen / 5.0f - sink.xLen / 10.0f;
-        particles[i].position.y = ((float)rand() / RAND_MAX) * sink.yLen;
+        particles[i].position.y = ((float)rand() / RAND_MAX) * sink.yLen + sink.yLen / 2.0f;
         particles[i].position.z = ((float)rand() / RAND_MAX) * sink.zLen / 5.0f - sink.zLen / 10.0f;
         particles[i].density = 0.0f;
         particles[i].velocity = {0.0f, 0.0f, 0.0f};
@@ -157,7 +157,7 @@ Particle * placeParticles(int &particlesCount, int droppingParticlesCount, Sink 
 
 Particle *initParticles(int &particlesCount, float &mass, Sink &sink)
 {
-    int droppingParticlesCount = 0;
+    int droppingParticlesCount = 500;
     Particle *particles = placeParticles(particlesCount, droppingParticlesCount, sink);
     mass = normalizeMass(particles, particlesCount - droppingParticlesCount);
     return particles;

@@ -9,22 +9,45 @@ INC=$(foreach d, $(INC_DIRS), -I$d)
 LIB_DIRS=$(CUDA_PATH)/lib64 $(CUDA_PATH)/lib $(SDL2_PATH)/build $(SDL2_GFX_PATH)/.libs
 LIBS=$(foreach d, $(LIB_DIRS), -L$d)
 
-all: SPH_CUDA
+# Clean target (doesn't require mode)
+clean:
+	rm -f *.o SPH_CUDA Visualizer
 
-SPH_CUDA: renderer.o sph.o vec.o
-	${CXX} -o SPH_CUDA renderer.o sph.o vec.o $(LIBS) -lSDL2 -lSDL2_gfx -lcudart
+# Check mode parameter for non-clean targets
+ifeq ($(filter clean,$(MAKECMDGOALS)),)
+  ifndef mode
+    $(error Usage: "make run mode=c" (computation) or "make run mode=v" (visualization))
+  endif
+  ifneq ($(mode),c)
+    ifneq ($(mode),v)
+      $(error Usage: "make run mode=c" (computation) or "make run mode=v" (visualization))
+    endif
+  endif
+endif
 
-renderer.o: renderer.cpp
-	${CXX} $(INC) -c -o renderer.o renderer.cpp
-
-sph.o: sph.cu sph.h vec.h
-	$(NVCC) $(INC) -c -o sph.o sph.cu
-
+ifeq ($(mode),v)
+# Visualizer mode
+all: Visualizer
+Visualizer: visualizer.o vec.o
+	${CXX} -o Visualizer visualizer.o vec.o $(LIBS) -lSDL2 -lSDL2_gfx
+visualizer.o: visualizer.cpp
+	${CXX} $(INC) -c -o visualizer.o visualizer.cpp
 vec.o: vec.cpp vec.h
 	${CXX} $(INC) -c -o vec.o vec.cpp
-
+run: Visualizer
+	LD_LIBRARY_PATH=$(SDL2_PATH)/build:$(SDL2_GFX_PATH)/.libs:$$LD_LIBRARY_PATH ./Visualizer
+endif
+ifeq ($(mode),c)
+# Compute mode
+all: SPH_CUDA
+SPH_CUDA: main.o sph.o vec.o
+	${CXX} -o SPH_CUDA main.o sph.o vec.o $(LIBS) -lSDL2 -lSDL2_gfx -lcudart
+main.o: main.cpp
+	${CXX} $(INC) -c -o main.o main.cpp
+sph.o: sph.cu sph.h vec.h
+	$(NVCC) $(INC) -c -o sph.o sph.cu
+vec.o: vec.cpp vec.h
+	${CXX} $(INC) -c -o vec.o vec.cpp
 run: SPH_CUDA
-	LD_LIBRARY_PATH=$(SDL2_PATH)/build:$(SDL2_GFX_PATH)/.libs:$(CUDA_PATH)/lib64:$$LD_LIBRARY_PATH ./SPH_CUDA
-
-clean:
-	rm -f *.o SPH_CUDA
+	LD_LIBRARY_PATH=$(SDL2_PATH)/build:$(SDL2_GFX_PATH)/.libs:$(CUDA_PATH)/lib64:$$LD_LIBRARY_PATH ./SPH_CUDA $(mode)
+endif

@@ -30,5 +30,4 @@ public:
         {0, 1, 5, 4}, // Front
     };
     SDL_Point screenPoints[8];
-    Sink();
 };
