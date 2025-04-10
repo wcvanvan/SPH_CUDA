@@ -1,8 +1,8 @@
 #ifndef COMPUTE_H
 #define COMPUTE_H
 
-#include <vector>
 #include <cstdio>
+#include <vector>
 #include "const.h"
 
 // Forward declarations for types and functions defined elsewhere
@@ -14,11 +14,11 @@ struct Particle;
 
 // Frame data structure storing simulation results
 struct FrameData {
-    std::vector<std::vector<Vec2>*> frames;
+  std::vector<std::vector<Vec2> *> frames;
 
-    ~FrameData() {
-        for (auto frame : frames) delete frame;
-    }
+  ~FrameData() {
+    for (auto frame : frames) delete frame;
+  }
 };
 
 // Global filename for particle output

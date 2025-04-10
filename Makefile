@@ -18,6 +18,8 @@ CPP_SRCS=main.cpp compute.cpp visualizer.cpp vec.cpp
 CU_SRCS=sph.cu
 OBJS=$(CPP_SRCS:.cpp=.o) $(CU_SRCS:.cu=.o)
 
+FORMAT_SRCS=$(CPP_SRCS) $(CU_SRCS) $(wildcard *.h)
+
 # We do not specify compute mode or visual mode in compile stage.
 # Instead, we use a flag to determine the mode at runtime.
 # Usage: 
@@ -26,7 +28,8 @@ OBJS=$(CPP_SRCS:.cpp=.o) $(CU_SRCS:.cu=.o)
 # or
 # Step 2: ./SPH_CUDA -c -> Only generate the temp file, then use ./SPH_CUDA -v to visualize separately.
 
-all: SPH_CUDA
+.PHONY: all
+all: format SPH_CUDA
 
 SPH_CUDA: $(OBJS)
 	$(CXX) -o $@ $^ $(LIBS) $(LIBFLAGS)
@@ -37,5 +40,11 @@ SPH_CUDA: $(OBJS)
 %.o: %.cu
 	$(NVCC) $(INC) -c -o $@ $<
 
+.PHONY: format
+format:
+	@echo "Formatting source files..."
+	clang-format -i $(FORMAT_SRCS)
+
+.PHONY: clean
 clean:
 	rm -f *.o particles.dat SPH_CUDA
