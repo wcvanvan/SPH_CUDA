@@ -1,21 +1,10 @@
-#include <stdio.h>
-#include <stdlib.h>
-#include <cmath>
 #include <iostream>
-#include <string.h>
-#include <assert.h>
+#include <cmath>
 #include <SDL2/SDL.h>
 #include <SDL2_gfxPrimitives.h>
-#include "const.h"
-#include "sph.h"
-#include "sink.h"
-#include "vec.h"
+#include "visualizer.h"
 
 Mat4 transformMat;
-const char *filename = "./particles.dat";
-struct FrameData {
-    std::vector<std::vector<Vec2>> frames;
-};
 
 void drawPoints(std::vector<Vec2> &points, SDL_Renderer *sdlRenderer) {
     for (auto && v : points) {
@@ -78,12 +67,12 @@ void renderSinkFrontFaces(SDL_Renderer *sdlRenderer, Sink &sink)
     }
 }
 
-FrameData *readAllFramesFromFile(int &particleCount) {
-    FrameData *frameData = new FrameData();
+FrameData2 *readAllFramesFromFile(int &particleCount) {
+    FrameData2 *frameData2 = new FrameData2();
     FILE* file = fopen(filename, "r");
     if (!file) {
         std::cerr << "Error opening file" << std::endl;
-        return frameData;
+        return frameData2;
     }
     
     // Read particle count
@@ -93,7 +82,7 @@ FrameData *readAllFramesFromFile(int &particleCount) {
     } else {
         std::cout << "Fail to read particle count" << std::endl;
         fclose(file);
-        return frameData;
+        return frameData2;
     }
     
     // Read frames
@@ -114,18 +103,18 @@ FrameData *readAllFramesFromFile(int &particleCount) {
                 framePositions.push_back({x, y});
             }
         }
-        frameData->frames.push_back(framePositions);
+        frameData2->frames.push_back(framePositions);
     }
     
     fclose(file);
-    return frameData;
+    return frameData2;
 }
 
-int main()
+int visualize()
 {
     int particleCount = 0;
     std::cout << "Reading frame data" << std::endl;
-    FrameData *frameData = readAllFramesFromFile(particleCount);
+    FrameData2 *frameData2 = readAllFramesFromFile(particleCount);
     std::cout << "Finished reading frame data" << std::endl;
     if (SDL_Init(SDL_INIT_EVERYTHING) < 0)
     {
@@ -186,14 +175,15 @@ int main()
         SDL_RenderClear(sdlRenderer);
         renderSinkBackFaces(sdlRenderer, sink);
         SDL_SetRenderDrawColor(sdlRenderer, 18, 149, 217, 255);
-        drawPoints(frameData->frames[count], sdlRenderer);
+        drawPoints(frameData2->frames[count], sdlRenderer);
         renderSinkFrontFaces(sdlRenderer, sink);
         SDL_RenderPresent(sdlRenderer);
         count++;
     }
-    delete frameData;
+    delete frameData2;
 
     SDL_DestroyRenderer(sdlRenderer);
     SDL_DestroyWindow(window);
     SDL_Quit();
+    return 0;
 }
