@@ -1,4 +1,5 @@
 #include "compute.h"
+#include <chrono>
 #include <cmath>
 #include <iostream>
 #include "const.h"
@@ -12,7 +13,6 @@ void writeDataToFile(FILE *file, const FrameData *frameData, int particleCount) 
   fprintf(file, "%d\n", particleCount);
   int count = 0;
   for (auto &&frame : frameData->frames) {
-    std::cout << "frame " << count++ << std::endl;
     fprintf(file, "FRAMESTART\n");
     for (const auto &pos : *frame) {
       fprintf(file, "%.2f %.2f\n", pos.x, pos.y);
@@ -41,12 +41,22 @@ int compute() {
     std::cerr << "Error opening file" << std::endl;
     return 1;
   }
+
+  // [Optional] Timer
+  auto start = std::chrono::high_resolution_clock::now();
+
   // Init scene
   Sink sink;
   int particleCount = 0;
   float mass = 1.0f;
   Particle *particles = initParticles(particleCount, mass, sink);
   initSimulation(particles, particleCount, sink, mass, transformMatOnGPU);
+
+  // [Optional] Timer
+  auto init_end = std::chrono::high_resolution_clock::now();
+  std::chrono::duration<double> init_elapsed = init_end - start;
+  std::cout << "Initialization time: " << init_elapsed.count() << " seconds" << std::endl;
+
   FrameData *frameData = new FrameData();
   int count = 0;
   while (count < FRAMES) {
@@ -59,6 +69,13 @@ int compute() {
     frameData->frames.push_back(framePositions);
     count++;
   }
+
+  // [Optional] Timer
+  auto end = std::chrono::high_resolution_clock::now();
+  std::chrono::duration<double> elapsed = end - init_end;
+  std::cout << "Frame count: " << frameData->frames.size() << std::endl;
+  std::cout << "Computation time: " << elapsed.count() << " seconds" << std::endl;
+
   writeDataToFile(file, frameData, particleCount);
   delete frameData;
   return 0;

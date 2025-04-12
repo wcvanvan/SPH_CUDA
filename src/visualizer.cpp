@@ -144,7 +144,7 @@ int visualize() {
     frameTime = frameStart > 0 ? currentTime - frameStart : 0;
     frameStart = currentTime;
     float fps = frameTime > 0 ? 1000.0f / frameTime : 0;
-    printf("Frame time: %u ms (%.1f FPS)\n", frameTime, fps);
+    printf("Frame time: %u ms (%.1f FPS), count = %d\n", frameTime, fps, count);
 
     SDL_Event e;
     if (SDL_PollEvent(&e)) {

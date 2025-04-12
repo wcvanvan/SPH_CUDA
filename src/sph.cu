@@ -105,7 +105,7 @@ float normalizeMass(Particle *particles, int particlesCount) {
 
 Particle *placeParticles(int &particlesCount, int droppingParticlesCount, Sink &sink) {
   float h = KERNEL_RADIUS;
-  float hh = h / 1.3f;
+  float hh = h / 2.0f;
   int particlesInSink = 0;
   for (float x = -sink.xLen / 2.0f; x <= sink.xLen / 2.0f; x += hh) {
     for (float z = -sink.zLen / 2.0f; z <= sink.zLen / 2.0f; z += hh) {
