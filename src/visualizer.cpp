@@ -28,8 +28,21 @@ Vec2 worldToScreen(Vec3 &worldCoord) {
 void transformSinkPoints(Sink &sink) {
   // change from world coordinates to screen coordinates
   for (int i = 0; i < 8; i++) {
-    Vec2 screenCoord = worldToScreen(sink.sinkVertices[i]);
+    Vec2 screenCoord = worldToScreen(sink.vertices[i]);
     sink.screenPoints[i] = {(int)screenCoord.x, (int)screenCoord.y};
+  }
+}
+
+void transformTroughPoints(Trough &trough, float sinkXLen) {
+  // translate trough to the side of the sink
+  float translation = trough.xLen / 2.0f + sinkXLen / 2.0f;
+  for (int i = 0; i < 8; i++) {
+    trough.vertices[i].x -= translation;
+  }
+  // change from world coordinates to screen coordinates
+  for (int i = 0; i < 8; i++) {
+    Vec2 screenCoord = worldToScreen(trough.vertices[i]);
+    trough.screenPoints[i] = {(int)screenCoord.x, (int)screenCoord.y};
   }
 }
 
@@ -51,6 +64,30 @@ void renderSinkFrontFaces(SDL_Renderer *sdlRenderer, Sink &sink) {
     for (int j = 0; j < 4; j++) {
       vx[j] = (Sint16)sink.screenPoints[sink.frontFaces[i][j]].x;
       vy[j] = (Sint16)sink.screenPoints[sink.frontFaces[i][j]].y;
+    }
+    filledPolygonRGBA(sdlRenderer, vx, vy, 4, 220, 220, 220, 255);
+    polygonRGBA(sdlRenderer, vx, vy, 4, 0, 0, 0, 255);
+  }
+}
+
+void renderTroughBackFaces(SDL_Renderer *sdlRenderer, Trough &trough) {
+  for (int i = 0; i < 3; i++) {
+    Sint16 vx[4], vy[4];
+    for (int j = 0; j < 4; j++) {
+      vx[j] = (Sint16)trough.screenPoints[trough.backFaces[i][j]].x;
+      vy[j] = (Sint16)trough.screenPoints[trough.backFaces[i][j]].y;
+    }
+    filledPolygonRGBA(sdlRenderer, vx, vy, 4, 220, 220, 220, 255);
+    polygonRGBA(sdlRenderer, vx, vy, 4, 0, 0, 0, 255);
+  }
+}
+
+void renderTroughFrontFaces(SDL_Renderer *sdlRenderer, Trough &trough) {
+  for (int i = 0; i < 2; i++) {
+    Sint16 vx[4], vy[4];
+    for (int j = 0; j < 4; j++) {
+      vx[j] = (Sint16)trough.screenPoints[trough.frontFaces[i][j]].x;
+      vy[j] = (Sint16)trough.screenPoints[trough.frontFaces[i][j]].y;
     }
     filledPolygonRGBA(sdlRenderer, vx, vy, 4, 220, 220, 220, 255);
     polygonRGBA(sdlRenderer, vx, vy, 4, 0, 0, 0, 255);
@@ -123,6 +160,7 @@ int visualize() {
 
   // Init scene
   Sink sink;
+  Trough trough;
   Vec3 camera(1.25, 1.5, 1.8);
   Vec3 center(0, 0, 0);
   Vec3 up(0, 1, 0);
@@ -135,6 +173,7 @@ int visualize() {
   Mat4 viewMat = lookat(camera, center, up);
   transformMat = projMat * viewMat;
   transformSinkPoints(sink);
+  transformTroughPoints(trough, sink.xLen);
 
   Uint32 frameStart = 0;
   Uint32 frameTime = 0;
@@ -158,6 +197,8 @@ int visualize() {
     SDL_SetRenderDrawColor(sdlRenderer, 18, 149, 217, 255);
     drawPoints(frameData2->frames[count], sdlRenderer);
     renderSinkFrontFaces(sdlRenderer, sink);
+    renderTroughBackFaces(sdlRenderer, trough);
+    renderTroughFrontFaces(sdlRenderer, trough);
     SDL_RenderPresent(sdlRenderer);
     count++;
   }

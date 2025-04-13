@@ -5,7 +5,7 @@
 #include <vector>
 
 #include "const.h"
-#include "sink.h"
+#include "scene.h"
 #include "vec.h"
 
 // External global transform matrix used for coordinate transforms
