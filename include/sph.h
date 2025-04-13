@@ -2,7 +2,7 @@
 
 #include <stdint.h>
 #include "const.h"
-#include "sink.h"
+#include "scene.h"
 #include "vec.h"
 
 #ifndef __CUDACC__

@@ -3,7 +3,7 @@
 #include <cmath>
 #include <iostream>
 #include "const.h"
-#include "sink.h"
+#include "scene.h"
 #include "sph.h"
 #include "vec.h"
 
