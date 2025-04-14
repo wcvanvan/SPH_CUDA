@@ -9,6 +9,29 @@
 
 const char *filename = "./particles.dat";
 
+void getTroughPosition(Trough &trough, Sink &sink) {
+  // translate trough to the side and above the sink
+  float translationX = trough.xLen / 2.0f + sink.xLen / 2.0f;
+  float translationY = sink.yLen / 2.0f + trough.yLen / 2.0f;
+  for (int i = 0; i < 8; i++) {
+    trough.vertices[i].x -= translationX;
+    trough.vertices[i].y += translationY;
+  }
+  // calculate the bottom's normal vector
+  Vec3 v1 = trough.vertices[1] - trough.vertices[0];
+  Vec3 v2 = trough.vertices[3] - trough.vertices[0];
+  trough.normal = cross(v1, v2).normalize();
+  // std::cout << "trough's normal: " << trough.normal.x << " " << trough.normal.y << " " << trough.normal.z <<
+  // std::endl;
+
+  // calculate the slope and intercept of the x-y plane of the bottom
+  float slope = (trough.vertices[0].y - trough.vertices[1].y) / (trough.vertices[0].x - trough.vertices[1].x);
+  float intercept = trough.vertices[1].y - slope * trough.vertices[1].x;
+  trough.slope = slope;
+  trough.intercept = intercept;
+  // std::cout << "slope: " << slope << " intercept: " << intercept << std::endl;
+}
+
 void writeDataToFile(FILE *file, const FrameData *frameData, int particleCount) {
   fprintf(file, "%d\n", particleCount);
   int count = 0;
@@ -22,7 +45,7 @@ void writeDataToFile(FILE *file, const FrameData *frameData, int particleCount) 
   fflush(file);
 }
 
-int compute() {
+int main() {
   Vec3 camera(1.25, 1.5, 1.8);
   Vec3 center(0, 0, 0);
   Vec3 up(0, 1, 0);
@@ -47,10 +70,12 @@ int compute() {
 
   // Init scene
   Sink sink;
+  Trough trough;
+  getTroughPosition(trough, sink);
   int particleCount = 0;
   float mass = 1.0f;
-  Particle *particles = initParticles(particleCount, mass, sink);
-  initSimulation(particles, particleCount, sink, mass, transformMatOnGPU);
+  Particle *particles = initParticles(particleCount, mass, sink, trough);
+  initSimulation(particles, particleCount, sink, trough, mass, transformMatOnGPU);
 
   // [Optional] Timer
   auto init_end = std::chrono::high_resolution_clock::now();
@@ -60,7 +85,7 @@ int compute() {
   FrameData *frameData = new FrameData();
   int count = 0;
   while (count < FRAMES) {
-    updateSimulation(particles, particleCount, sink, mass, transformMatOnGPU);
+    updateSimulation(particles, particleCount, sink, trough, mass, transformMatOnGPU);
     std::vector<Vec2> *framePositions = new std::vector<Vec2>();
     framePositions->reserve(particleCount);
     for (int i = 0; i < particleCount; i++) {

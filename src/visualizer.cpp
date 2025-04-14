@@ -4,6 +4,8 @@
 #include <cmath>
 #include <iostream>
 
+const char *filename = "./particles.dat";
+
 Mat4 transformMat;
 
 void drawPoints(std::vector<Vec2> &points, SDL_Renderer *sdlRenderer) {
@@ -33,17 +35,27 @@ void transformSinkPoints(Sink &sink) {
   }
 }
 
-void transformTroughPoints(Trough &trough, float sinkXLen) {
-  // translate trough to the side of the sink
-  float translation = trough.xLen / 2.0f + sinkXLen / 2.0f;
+void transformTroughPoints(Trough &trough, Sink &sink) {
+  // translate trough to the side and above the sink
+  float translationX = trough.xLen / 2.0f + sink.xLen / 2.0f;
+  float translationY = sink.yLen / 2.0f + trough.yLen / 2.0f;
   for (int i = 0; i < 8; i++) {
-    trough.vertices[i].x -= translation;
+    trough.vertices[i].x -= translationX;
+    trough.vertices[i].y += translationY;
   }
   // change from world coordinates to screen coordinates
   for (int i = 0; i < 8; i++) {
     Vec2 screenCoord = worldToScreen(trough.vertices[i]);
     trough.screenPoints[i] = {(int)screenCoord.x, (int)screenCoord.y};
   }
+  // std::cout << "trough" << std::endl;
+  // for (int i = 0; i < 8; i++) {
+  //   std::cout << trough.vertices[i].x << " " << trough.vertices[i].y << " " << trough.vertices[i].z << std::endl;
+  // }
+  // std::cout << "sink" << std::endl;
+  // for (int i = 0; i < 8; i++) {
+  //   std::cout << sink.vertices[i].x << " " << sink.vertices[i].y << " " << sink.vertices[i].z << std::endl;
+  // }
 }
 
 void renderSinkBackFaces(SDL_Renderer *sdlRenderer, Sink &sink) {
@@ -137,7 +149,7 @@ FrameData2 *readAllFramesFromFile(int &particleCount) {
   return frameData2;
 }
 
-int visualize() {
+int main() {
   int particleCount = 0;
   std::cout << "Reading frame data" << std::endl;
   FrameData2 *frameData2 = readAllFramesFromFile(particleCount);
@@ -173,7 +185,7 @@ int visualize() {
   Mat4 viewMat = lookat(camera, center, up);
   transformMat = projMat * viewMat;
   transformSinkPoints(sink);
-  transformTroughPoints(trough, sink.xLen);
+  transformTroughPoints(trough, sink);
 
   Uint32 frameStart = 0;
   Uint32 frameTime = 0;
