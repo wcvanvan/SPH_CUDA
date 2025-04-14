@@ -58,4 +58,4 @@ format:
 
 .PHONY: clean
 clean:
-	rm -f *.o particles.dat SPH_CUDA
+	rm -f *.o particles.dat SPH_CUDA Visualizer

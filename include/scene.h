@@ -36,7 +36,9 @@ class Trough {
   float xLen = 1.0f;
   float yLen = 0.1f;
   float zLen = 0.3f;
-  float height = 0.3f;  // height difference between the higher side and the lower side on bottom
+  float height = 0.3f;     // height difference between the higher side and the lower side on bottom
+  float slope, intercept;  // slope and interception of the x-y plane of the bottom
+  Vec3 normal;
   Vec3 vertices[8] = {
       {-xLen / 2, -yLen / 2 + height, zLen / 2},   // Bottom front left
       {xLen / 2, -yLen / 2, zLen / 2},             // Bottom front right
