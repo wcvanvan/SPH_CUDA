@@ -243,9 +243,10 @@ float normalizeMass(Particle *particles, int particlesCount, const Sink &sink) {
   return mass;
 }
 
-Particle *placeParticles(int &particlesCount, int droppingParticlesCount, Sink &sink, Trough &trough) {
+Particle *placeParticles(int &particlesCount, int &droppingParticlesCount, Sink &sink, Trough &trough) {
   float h = KERNEL_RADIUS;
-  float hh = h / 2.0f;
+  float hh = h / 1.3f;  // don't change when not necessary
+  std::cout << "hh: " << hh << std::endl;
   int particlesInSink = 0;
   for (float x = -sink.xLen / 2.0f; x <= sink.xLen / 2.0f; x += hh) {
     for (float z = -sink.zLen / 2.0f; z <= sink.zLen / 2.0f; z += hh) {
@@ -254,6 +255,17 @@ Particle *placeParticles(int &particlesCount, int droppingParticlesCount, Sink &
       }
     }
   }
+  int dropping = 0;
+  for (float x = trough.vertices[0].x + 0.001f; x <= trough.vertices[1].x - 0.001f; x += hh) {
+    float y0 = trough.slope * x + trough.intercept;
+    for (float z = -trough.zLen / 2.0f + 0.001f; z <= trough.zLen / 2.0f - 0.001f; z += hh) {
+      for (float y = y0; y <= y0 + trough.yLen; y += hh) {
+        dropping++;
+      }
+    }
+  }
+  droppingParticlesCount = dropping;
+  std::cout << "dropping particle count: " << droppingParticlesCount << std::endl;
   particlesCount = particlesInSink + droppingParticlesCount;
   std::cout << "Particle Count: " << particlesCount << std::endl;
   Particle *particles;
@@ -274,21 +286,28 @@ Particle *placeParticles(int &particlesCount, int droppingParticlesCount, Sink &
     }
   }
   // particles that will fall on trough
-  for (int i = particlesInSink; i < particlesCount; i++) {
-    particles[i].position.x = trough.vertices[0].x + 0.2f;
-    particles[i].position.y = trough.vertices[7].y;
-    particles[i].position.z = ((float)rand() / RAND_MAX) * trough.zLen / 5.0f - trough.zLen / 10.0f;
-    particles[i].density = 0.0f;
-    particles[i].inSink = false;
-    particles[i].velocity = {0.0f, 0.0f, 0.0f};
-    particles[i].velocityHalf = {0.0f, 0.0f, 0.0f};
-    particles[i].acceleration = {0.0f, 0.0f, 0.0f};
+  float vx = 10.0f;
+  float vy = vx * trough.slope;
+  for (float x = trough.vertices[0].x + 0.001f; x <= trough.vertices[1].x - 0.001f; x += hh) {
+    float y0 = trough.slope * x + trough.intercept;
+    for (float z = -trough.zLen / 2.0f + 0.001f; z <= trough.zLen / 2.0f - 0.001f; z += hh) {
+      for (float y = y0; y <= y0 + trough.yLen; y += hh) {
+        particles[count].position = {x, y, z};
+        particles[count].density = 0.0f;
+        particles[count].inSink = false;
+        particles[count].velocity = {vx, vy, 0.0f};
+        particles[count].velocityHalf = {vx, vy, 0.0f};
+        particles[count].acceleration = {0.0f, 0.0f, 0.0f};
+        count++;
+      }
+    }
   }
+  assert(count == particlesCount);
   return particles;
 }
 
 Particle *initParticles(int &particlesCount, float &mass, Sink &sink, Trough &trough) {
-  int droppingParticlesCount = 100;
+  int droppingParticlesCount = 0;
   Particle *particles = placeParticles(particlesCount, droppingParticlesCount, sink, trough);
   mass = normalizeMass(particles, particlesCount - droppingParticlesCount, sink);
   return particles;

@@ -11,6 +11,9 @@ LIBS=$(foreach d, $(LIB_DIRS), -L$d)
 
 SRC_DIR=src
 INC_DIR=include
+CPP_SRCS=$(wildcard $(SRC_DIR)/*.cpp) main.cpp
+CU_SRCS=$(wildcard $(SRC_DIR)/*.cu)
+FORMAT_SRCS=$(CPP_SRCS) $(CU_SRCS) $(wildcard $(INC_DIR)/*.h)
 
 # Check mode parameter for non-clean targets
 ifeq ($(filter clean format,$(MAKECMDGOALS)),)

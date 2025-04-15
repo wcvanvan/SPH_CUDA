@@ -206,10 +206,10 @@ int main() {
     SDL_SetRenderDrawColor(sdlRenderer, 0, 0, 0, 255);
     SDL_RenderClear(sdlRenderer);
     renderSinkBackFaces(sdlRenderer, sink);
+    renderTroughBackFaces(sdlRenderer, trough);
     SDL_SetRenderDrawColor(sdlRenderer, 18, 149, 217, 255);
     drawPoints(frameData2->frames[count], sdlRenderer);
     renderSinkFrontFaces(sdlRenderer, sink);
-    renderTroughBackFaces(sdlRenderer, trough);
     renderTroughFrontFaces(sdlRenderer, trough);
     SDL_RenderPresent(sdlRenderer);
     count++;

@@ -8,6 +8,6 @@
 #define STIFFNESS 1e3
 #define VISCOSITY 1.0f
 #define DELTA_T 1e-4
-#define GRAVITY -9.8f
+#define GRAVITY -50.0f
 #define REFLECT_DAMP 0.75f
-#define FRAMES 1500
+#define FRAMES 3000
