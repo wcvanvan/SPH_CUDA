@@ -33,7 +33,7 @@ class Sink {
 
 class Trough {
  public:
-  float xLen = 1.0f;
+  float xLen = 1.5f;
   float yLen = 0.1f;
   float zLen = 0.3f;
   float height = 0.3f;     // height difference between the higher side and the lower side on bottom
