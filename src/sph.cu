@@ -14,19 +14,20 @@ __global__ void computeCellId(Particle *particles, int particlesCount, float cel
                               float zLen, int gridDimX, int gridDimY, int gridDimZ) {
   int i = blockDim.x * blockIdx.x + threadIdx.x;
   if (i >= particlesCount) return;
+  Particle &particle = particles[i];
 
   float halfX = xLen / 2.0f;
   float halfY = yLen / 2.0f;
   float halfZ = zLen / 2.0f;
-  int ix = (int)floor((particles[i].position.x + halfX) / cellSize);
-  int iy = (int)floor((particles[i].position.y + halfY) / cellSize);
-  int iz = (int)floor((particles[i].position.z + halfZ) / cellSize);
+  int ix = (int)floor((particle.position.x + halfX) / cellSize);
+  int iy = (int)floor((particle.position.y + halfY) / cellSize);
+  int iz = (int)floor((particle.position.z + halfZ) / cellSize);
 
   ix = min(max(ix, 0), gridDimX - 1);
   iy = min(max(iy, 0), gridDimY - 1);
   iz = min(max(iz, 0), gridDimZ - 1);
 
-  particles[i].cellId = ix + iy * gridDimX + iz * gridDimX * gridDimY;
+  particle.cellId = ix + iy * gridDimX + iz * gridDimX * gridDimY;
 }
 
 // cellStart[i] = the first particle in cell i; cellEnd[i] = the first particle in cell i+1
@@ -58,25 +59,23 @@ struct ParticleComparator {
 };
 
 // Update: each thread loops only over particles in its own and neighboring grid cells.
-__global__ void computeDensitySorted(Particle *particles, int particlesCount, float mass, int *cellStart, int *cellEnd,
-                                     float cellSize, int gridDimX, int gridDimY, int gridDimZ, float xLen, float yLen,
-                                     float zLen) {
+__global__ void computeDensityPressureSorted(Particle *particles, int particlesCount, float mass, int *cellStart,
+                                             int *cellEnd, float cellSize, int gridDimX, int gridDimY, int gridDimZ,
+                                             float xLen, float yLen, float zLen) {
   int i = blockDim.x * blockIdx.x + threadIdx.x;
   if (i >= particlesCount) return;
+  Particle &particle = particles[i];
 
-  particles[i].density = 0.0f;
+  particle.density = 0.0f;
   float h2 = KERNEL_RADIUS * KERNEL_RADIUS;
-  float h4 = h2 * h2;
-  float h8 = h4 * h4;
-  float C = 4 * mass / M_PI / h8;
-  particles[i].density += 4 * mass / M_PI / h2;
+  float C = mass * POLY6;
 
   float halfX = xLen / 2.0f;
   float halfY = yLen / 2.0f;
   float halfZ = zLen / 2.0f;
-  int ix = min(max((int)floor((particles[i].position.x + halfX) / cellSize), 0), gridDimX - 1);
-  int iy = min(max((int)floor((particles[i].position.y + halfY) / cellSize), 0), gridDimY - 1);
-  int iz = min(max((int)floor((particles[i].position.z + halfZ) / cellSize), 0), gridDimZ - 1);
+  int ix = min(max((int)floor((particle.position.x + halfX) / cellSize), 0), gridDimX - 1);
+  int iy = min(max((int)floor((particle.position.y + halfY) / cellSize), 0), gridDimY - 1);
+  int iz = min(max((int)floor((particle.position.z + halfZ) / cellSize), 0), gridDimZ - 1);
 
   // Loop over neighboring cells (3×3×3)
   for (int dx = -1; dx <= 1; dx++) {
@@ -92,18 +91,20 @@ __global__ void computeDensitySorted(Particle *particles, int particlesCount, fl
         if (start == -1) continue;
         for (int j = start; j < end; j++) {
           if (j == i) continue;
-          float dx = particles[i].position.x - particles[j].position.x;
-          float dy = particles[i].position.y - particles[j].position.y;
-          float dz = particles[i].position.z - particles[j].position.z;
+          float dx = particle.position.x - particles[j].position.x;
+          float dy = particle.position.y - particles[j].position.y;
+          float dz = particle.position.z - particles[j].position.z;
           float r2 = dx * dx + dy * dy + dz * dz;
           float zVal = h2 - r2;
-          if (zVal <= 0) continue;
+          if (zVal <= 0 || r2 < 1e-12) continue;
           float rho = C * zVal * zVal * zVal;
-          particles[i].density += rho;
+          particle.density += rho;
         }
       }
     }
   }
+  particle.density += mass * WEIGHT_AT_0;  // contributing to the density of itself
+  particle.pressure = (pow(particle.density / REST_DENSITY, 7) - 1.0f) * STIFFNESS;
 }
 
 // Update: each thread loops only over particles in its own and neighboring grid cells.
@@ -112,22 +113,20 @@ __global__ void computeAccelSorted(Particle *particles, int particlesCount, floa
                                    float zLen) {
   int i = blockDim.x * blockIdx.x + threadIdx.x;
   if (i >= particlesCount) return;
+  Particle &particle = particles[i];
 
-  particles[i].acceleration.x = 0.0f;
-  particles[i].acceleration.y = GRAVITY;
-  particles[i].acceleration.z = 0.0f;
+  particle.acceleration.x = 0.0f;
+  particle.acceleration.y = 0.0f;
+  particle.acceleration.z = 0.0f;
 
   float h2 = KERNEL_RADIUS * KERNEL_RADIUS;
-  float C0 = mass / M_PI / (h2 * h2);
-  float Cp = 15 * STIFFNESS;
-  float Cv = -40.0f * VISCOSITY;
 
   float halfX = xLen / 2.0f;
   float halfY = yLen / 2.0f;
   float halfZ = zLen / 2.0f;
-  int ix = min(max((int)floor((particles[i].position.x + halfX) / cellSize), 0), gridDimX - 1);
-  int iy = min(max((int)floor((particles[i].position.y + halfY) / cellSize), 0), gridDimY - 1);
-  int iz = min(max((int)floor((particles[i].position.z + halfZ) / cellSize), 0), gridDimZ - 1);
+  int ix = min(max((int)floor((particle.position.x + halfX) / cellSize), 0), gridDimX - 1);
+  int iy = min(max((int)floor((particle.position.y + halfY) / cellSize), 0), gridDimY - 1);
+  int iz = min(max((int)floor((particle.position.z + halfZ) / cellSize), 0), gridDimZ - 1);
 
   // Loop over neighboring cells (3×3×3)
   for (int dx = -1; dx <= 1; dx++) {
@@ -147,23 +146,35 @@ __global__ void computeAccelSorted(Particle *particles, int particlesCount, floa
           float dy = particles[i].position.y - particles[j].position.y;
           float dz = particles[i].position.z - particles[j].position.z;
           float r2 = dx * dx + dy * dy + dz * dz;
-          if (r2 >= h2) continue;
+
+          if (r2 >= h2 || r2 <= 1e-12) continue;
           float r = sqrtf(r2);
-          float q = r / KERNEL_RADIUS;
-          float u = 1 - q;
-          float w0 = C0 * u / (particles[i].density * particles[j].density);
-          float wp = w0 * Cp * (particles[i].density + particles[j].density - 2 * REST_DENSITY) * u / (q + 1e-6f);
-          float wv = w0 * Cv;
-          float dvx = particles[i].velocity.x - particles[j].velocity.x;
-          float dvy = particles[i].velocity.y - particles[j].velocity.y;
-          float dvz = particles[i].velocity.z - particles[j].velocity.z;
-          particles[i].acceleration.x += (wp * dx + wv * dvx);
-          particles[i].acceleration.y += (wp * dy + wv * dvy);
-          particles[i].acceleration.z += (wp * dz + wv * dvz);
+
+          // pressure force push particles away
+          float V = mass / particles[j].density / 2.0f;
+          float Kr = KERNEL_RADIUS - r;
+          float Kp = SPIKY_GRAD * Kr * Kr;
+          float pressureForce = V * (particle.pressure + particles[j].pressure) * Kp;
+          particle.acceleration.x -= dx * pressureForce / r;
+          particle.acceleration.y -= dy * pressureForce / r;
+          particle.acceleration.z -= dz * pressureForce / r;
+
+          // viscosity force pulls particles closer
+          float Kv = VISCOSITY_LAPLACIAN * (KERNEL_RADIUS - r);
+          float viscosityForce = V * VISCOSITY * Kv;
+          float dvx = particles[j].averageVelocity.x - particle.averageVelocity.x;
+          float dvy = particles[j].averageVelocity.y - particle.averageVelocity.y;
+          float dvz = particles[j].averageVelocity.z - particle.averageVelocity.z;
+          particle.acceleration.x += dvx * viscosityForce;
+          particle.acceleration.y += dvy * viscosityForce;
+          particle.acceleration.z += dvz * viscosityForce;
         }
       }
     }
   }
+  particle.acceleration.x /= particle.density;
+  particle.acceleration.y /= particle.density;
+  particle.acceleration.z /= particle.density;
 }
 
 float *allocateMatOnGPU(Mat4 &mat) {
@@ -220,13 +231,13 @@ float normalizeMass(Particle *particles, int particlesCount, const Sink &sink) {
   sortParticles(particles, particlesCount, cellStart, cellEnd, cellSize, xLen, yLen, zLen, gridDimX, gridDimY,
                 gridDimZ);
 
-  computeDensitySorted<<<gridDim, blockDim>>>(particles, particlesCount, mass, cellStart, cellEnd, cellSize, gridDimX,
-                                              gridDimY, gridDimZ, xLen, yLen, zLen);
+  computeDensityPressureSorted<<<gridDim, blockDim>>>(particles, particlesCount, mass, cellStart, cellEnd, cellSize,
+                                                      gridDimX, gridDimY, gridDimZ, xLen, yLen, zLen);
   cudaDeviceSynchronize();
 
   cudaError_t err;
   if ((err = cudaGetLastError()) != cudaSuccess)
-    std::cerr << "Kernel error (computeDensitySorted): " << cudaGetErrorString(err) << std::endl;
+    std::cerr << "Kernel error (computeDensityPressureSorted): " << cudaGetErrorString(err) << std::endl;
 
   float rho0 = REST_DENSITY;
   float rho2s = 0.0f;
@@ -245,12 +256,12 @@ float normalizeMass(Particle *particles, int particlesCount, const Sink &sink) {
 
 Particle *placeParticles(int &particlesCount, int &droppingParticlesCount, Sink &sink, Trough &trough) {
   float h = KERNEL_RADIUS;
-  float hh = h / 1.3f;  // don't change when not necessary
+  float hh = h / 2.0f;
   std::cout << "hh: " << hh << std::endl;
   int particlesInSink = 0;
   for (float x = -sink.xLen / 2.0f; x <= sink.xLen / 2.0f; x += hh) {
     for (float z = -sink.zLen / 2.0f; z <= sink.zLen / 2.0f; z += hh) {
-      for (float y = -sink.yLen / 2.0f; y <= 0; y += hh) {
+      for (float y = -sink.yLen / 2.0f; y <= sink.yLen / 4.0f; y += hh) {
         particlesInSink++;
       }
     }
@@ -274,19 +285,19 @@ Particle *placeParticles(int &particlesCount, int &droppingParticlesCount, Sink 
   // particles generated in sink
   for (float x = -sink.xLen / 2.0f; x <= sink.xLen / 2.0f; x += hh) {
     for (float z = -sink.zLen / 2.0f; z <= sink.zLen / 2.0f; z += hh) {
-      for (float y = -sink.yLen / 2.0f; y <= 0; y += hh) {
+      for (float y = -sink.yLen / 2.0f; y <= sink.yLen / 4.0f; y += hh) {
         particles[count].position = {x, y, z};
         particles[count].density = 0.0f;
         particles[count].inSink = true;
         particles[count].velocity = {0.0f, 0.0f, 0.0f};
-        particles[count].velocityHalf = {0.0f, 0.0f, 0.0f};
+        particles[count].averageVelocity = {0.0f, 0.0f, 0.0f};
         particles[count].acceleration = {0.0f, 0.0f, 0.0f};
         count++;
       }
     }
   }
   // particles that will fall on trough
-  float vx = 10.0f;
+  float vx = 2.5f;
   float vy = vx * trough.slope;
   for (float x = trough.vertices[0].x + 0.001f; x <= trough.vertices[1].x - 0.001f; x += hh) {
     float y0 = trough.slope * x + trough.intercept;
@@ -296,7 +307,7 @@ Particle *placeParticles(int &particlesCount, int &droppingParticlesCount, Sink 
         particles[count].density = 0.0f;
         particles[count].inSink = false;
         particles[count].velocity = {vx, vy, 0.0f};
-        particles[count].velocityHalf = {vx, vy, 0.0f};
+        particles[count].averageVelocity = {vx, vy, 0.0f};
         particles[count].acceleration = {0.0f, 0.0f, 0.0f};
         count++;
       }
@@ -327,13 +338,9 @@ __device__ void reflectInSink(Particle &particle, float xLen, float yLen, float 
     particle.position.y -= particle.velocity.y * (1 - REFLECT_DAMP) * tbounce;
     particle.position.z -= particle.velocity.z * (1 - REFLECT_DAMP) * tbounce;
     particle.velocity.x = -particle.velocity.x;
-    particle.velocityHalf.x = -particle.velocityHalf.x;
     particle.velocity.x *= REFLECT_DAMP;
     particle.velocity.y *= REFLECT_DAMP;
     particle.velocity.z *= REFLECT_DAMP;
-    particle.velocityHalf.x *= REFLECT_DAMP;
-    particle.velocityHalf.y *= REFLECT_DAMP;
-    particle.velocityHalf.z *= REFLECT_DAMP;
   }
   if (particle.velocity.y != 0 && (particle.position.y > yLen / 2 || particle.position.y < -yLen / 2)) {
     // bounce back
@@ -348,13 +355,9 @@ __device__ void reflectInSink(Particle &particle, float xLen, float yLen, float 
     particle.position.x -= particle.velocity.x * (1 - REFLECT_DAMP) * tbounce;
     particle.position.z -= particle.velocity.z * (1 - REFLECT_DAMP) * tbounce;
     particle.velocity.y = -particle.velocity.y;
-    particle.velocityHalf.y = -particle.velocityHalf.y;
     particle.velocity.x *= REFLECT_DAMP;
     particle.velocity.y *= REFLECT_DAMP;
     particle.velocity.z *= REFLECT_DAMP;
-    particle.velocityHalf.x *= REFLECT_DAMP;
-    particle.velocityHalf.y *= REFLECT_DAMP;
-    particle.velocityHalf.z *= REFLECT_DAMP;
   }
   if (particle.velocity.z != 0 && (particle.position.z > zLen / 2 || particle.position.z < -zLen / 2)) {
     // bounce back
@@ -369,13 +372,9 @@ __device__ void reflectInSink(Particle &particle, float xLen, float yLen, float 
     particle.position.x -= particle.velocity.x * (1 - REFLECT_DAMP) * tbounce;
     particle.position.y -= particle.velocity.y * (1 - REFLECT_DAMP) * tbounce;
     particle.velocity.z = -particle.velocity.z;
-    particle.velocityHalf.z = -particle.velocityHalf.z;
     particle.velocity.x *= REFLECT_DAMP;
     particle.velocity.y *= REFLECT_DAMP;
     particle.velocity.z *= REFLECT_DAMP;
-    particle.velocityHalf.x *= REFLECT_DAMP;
-    particle.velocityHalf.y *= REFLECT_DAMP;
-    particle.velocityHalf.z *= REFLECT_DAMP;
   }
 }
 
@@ -393,17 +392,6 @@ __device__ void reflectInTrough(Particle &particle, float zLen, float slope, flo
     particle.velocity.x = newVx;
     particle.velocity.y = newVy;
     particle.velocity.z = newVz;
-    float dotVH =
-        particle.velocityHalf.x * normal.x + particle.velocityHalf.y * normal.y + particle.velocityHalf.z * normal.z;
-    float newVHx = particle.velocityHalf.x - 2 * dotVH * normal.x;
-    float newVHy = particle.velocityHalf.y - 2 * dotVH * normal.y;
-    float newVHz = particle.velocityHalf.z - 2 * dotVH * normal.z;
-    newVHx *= REFLECT_DAMP;
-    newVHy *= REFLECT_DAMP;
-    newVHz *= REFLECT_DAMP;
-    particle.velocityHalf.x = newVHx;
-    particle.velocityHalf.y = newVHy;
-    particle.velocityHalf.z = newVHz;
     particle.position.y = y + 0.001;  // simple method putting the particle back on trough
   }
   if (particle.velocity.z != 0 && (particle.position.z > zLen / 2 || particle.position.z < -zLen / 2)) {
@@ -420,32 +408,25 @@ __device__ void reflectInTrough(Particle &particle, float zLen, float slope, flo
     particle.position.x -= particle.velocity.x * (1 - REFLECT_DAMP) * tbounce;
     particle.position.y -= particle.velocity.y * (1 - REFLECT_DAMP) * tbounce;
     particle.velocity.z = -particle.velocity.z;
-    particle.velocityHalf.z = -particle.velocityHalf.z;
     particle.velocity.x *= REFLECT_DAMP;
     particle.velocity.y *= REFLECT_DAMP;
     particle.velocity.z *= REFLECT_DAMP;
-    particle.velocityHalf.x *= REFLECT_DAMP;
-    particle.velocityHalf.y *= REFLECT_DAMP;
-    particle.velocityHalf.z *= REFLECT_DAMP;
   }
 }
 
-__global__ void leapfrogStart(Particle *particles, int particlesCount, float sinkXLen, float sinkYLen, float sinkZLen,
-                              float troughZLen, float slope, float intercept, Vec3 normal) {
+__global__ void integration(Particle *particles, int particlesCount, float sinkXLen, float sinkYLen, float sinkZLen,
+                            float troughZLen, float slope, float intercept, Vec3 normal) {
   int i = blockDim.x * blockIdx.x + threadIdx.x;
   if (i >= particlesCount) {
     return;
   }
   Particle &particle = particles[i];
-  particle.velocityHalf.x = particle.velocity.x + particle.acceleration.x * DELTA_T / 2;
-  particle.velocityHalf.y = particle.velocity.y + particle.acceleration.y * DELTA_T / 2;
-  particle.velocityHalf.z = particle.velocity.z + particle.acceleration.z * DELTA_T / 2;
-  particle.velocity.x = particle.velocity.x + particle.acceleration.x * DELTA_T;
-  particle.velocity.y = particle.velocity.y + particle.acceleration.y * DELTA_T;
-  particle.velocity.z = particle.velocity.z + particle.acceleration.z * DELTA_T;
-  particle.position.x = particle.position.x + particle.velocityHalf.x * DELTA_T;
-  particle.position.y = particle.position.y + particle.velocityHalf.y * DELTA_T;
-  particle.position.z = particle.position.z + particle.velocityHalf.z * DELTA_T;
+  particle.velocity.x += particle.acceleration.x * DELTA_T;
+  particle.velocity.y += particle.acceleration.y * DELTA_T + GRAVITY * DELTA_T;
+  particle.velocity.z += particle.acceleration.z * DELTA_T;
+  particle.position.x += particle.velocity.x * DELTA_T;
+  particle.position.y += particle.velocity.y * DELTA_T;
+  particle.position.z += particle.velocity.z * DELTA_T;
   if (particle.inSink == false && (particle.position.x > -sinkXLen / 2.0f && particle.position.x < sinkXLen / 2.0f) &&
       (particle.position.y > -sinkYLen / 2.0f && particle.position.y < sinkYLen / 2.0f) &&
       (particle.position.z > -sinkZLen / 2.0f && particle.position.z < sinkZLen / 2.0f)) {
@@ -456,34 +437,9 @@ __global__ void leapfrogStart(Particle *particles, int particlesCount, float sin
   } else {
     reflectInTrough(particle, troughZLen, slope, intercept, normal);
   }
-}
-
-__global__ void leapfrogStep(Particle *particles, int particlesCount, float sinkXLen, float sinkYLen, float sinkZLen,
-                             float troughZLen, float slope, float intercept, Vec3 normal) {
-  int i = blockDim.x * blockIdx.x + threadIdx.x;
-  if (i >= particlesCount) {
-    return;
-  }
-  Particle &particle = particles[i];
-  particle.velocityHalf.x = particle.velocityHalf.x + particle.acceleration.x * DELTA_T;
-  particle.velocityHalf.y = particle.velocityHalf.y + particle.acceleration.y * DELTA_T;
-  particle.velocityHalf.z = particle.velocityHalf.z + particle.acceleration.z * DELTA_T;
-  particle.velocity.x = particle.velocityHalf.x + particle.acceleration.x * DELTA_T / 2;
-  particle.velocity.y = particle.velocityHalf.y + particle.acceleration.y * DELTA_T / 2;
-  particle.velocity.z = particle.velocityHalf.z + particle.acceleration.z * DELTA_T / 2;
-  particle.position.x = particle.position.x + particle.velocityHalf.x * DELTA_T;
-  particle.position.y = particle.position.y + particle.velocityHalf.y * DELTA_T;
-  particle.position.z = particle.position.z + particle.velocityHalf.z * DELTA_T;
-  if (particle.inSink == false && (particle.position.x > -sinkXLen / 2.0f && particle.position.x < sinkXLen / 2.0f) &&
-      (particle.position.y > -sinkYLen / 2.0f && particle.position.y < sinkYLen / 2.0f) &&
-      (particle.position.z > -sinkZLen / 2.0f && particle.position.z < sinkZLen / 2.0f)) {
-    particle.inSink = true;
-  }
-  if (particle.inSink) {
-    reflectInSink(particle, sinkXLen, sinkYLen, sinkZLen);
-  } else {
-    reflectInTrough(particle, troughZLen, slope, intercept, normal);
-  }
+  particle.averageVelocity.x = (particle.averageVelocity.x + particle.velocity.x) / 2.0f;
+  particle.averageVelocity.y = (particle.averageVelocity.y + particle.velocity.y) / 2.0f;
+  particle.averageVelocity.z = (particle.averageVelocity.z + particle.velocity.z) / 2.0f;
 }
 
 __global__ void coordTransform(Particle *particles, int particlesCount, float *transformMat) {
@@ -491,10 +447,11 @@ __global__ void coordTransform(Particle *particles, int particlesCount, float *t
   if (i >= particlesCount) {
     return;
   }
+  Particle &particle = particles[i];
   float worldPos[4], result[4];
-  worldPos[0] = particles[i].position.x;
-  worldPos[1] = particles[i].position.y;
-  worldPos[2] = particles[i].position.z;
+  worldPos[0] = particle.position.x;
+  worldPos[1] = particle.position.y;
+  worldPos[2] = particle.position.z;
   worldPos[3] = 1.0f;
   for (int i = 0; i < 4; i++) {
     result[i] = 0.0f;
@@ -506,55 +463,14 @@ __global__ void coordTransform(Particle *particles, int particlesCount, float *t
   float y = result[1] / result[3];
 
   if (x < -1.0f || x > 1.0f || y < -1.0f || y > 1.0f) {
-    particles[i].screenPos.x = -1.0f;
-    particles[i].screenPos.y = -1.0f;
+    particle.screenPos.x = -1.0f;
+    particle.screenPos.y = -1.0f;
   } else {
     float screenX = fmaxf(0.0f, fminf(1.0f, (x + 1.0f) * 0.5f)) * SCREEN_WIDTH;
     float screenY = fmaxf(0.0f, fminf(1.0f, (1.0f - y) * 0.5f)) * SCREEN_HEIGHT;
-    particles[i].screenPos.x = screenX;
-    particles[i].screenPos.y = screenY;
+    particle.screenPos.x = screenX;
+    particle.screenPos.y = screenY;
   }
-}
-
-void initSimulation(Particle *particles, int particlesCount, const Sink &sink, const Trough &trough, float mass,
-                    float *transformMat) {
-  int blockDim = 32;
-  int gridDim = (particlesCount + (blockDim - 1)) / blockDim;
-
-  // Set up uniform grid parameters using the sink dimensions
-  float cellSize = KERNEL_RADIUS;
-  float xLen = sink.xLen;
-  float yLen = sink.yLen;
-  float zLen = sink.zLen;
-  int gridDimX = (int)ceil(xLen / cellSize);
-  int gridDimY = (int)ceil(yLen / cellSize);
-  int gridDimZ = (int)ceil(zLen / cellSize);
-
-  int *cellStart, *cellEnd;
-  sortParticles(particles, particlesCount, cellStart, cellEnd, cellSize, xLen, yLen, zLen, gridDimX, gridDimY,
-                gridDimZ);
-
-  cudaError_t err;
-  computeDensitySorted<<<gridDim, blockDim>>>(particles, particlesCount, mass, cellStart, cellEnd, cellSize, gridDimX,
-                                              gridDimY, gridDimZ, xLen, yLen, zLen);
-  cudaDeviceSynchronize();
-  if ((err = cudaGetLastError()) != cudaSuccess)
-    std::cerr << "Kernel error (computeDensitySorted): " << cudaGetErrorString(err) << std::endl;
-
-  computeAccelSorted<<<gridDim, blockDim>>>(particles, particlesCount, mass, cellStart, cellEnd, cellSize, gridDimX,
-                                            gridDimY, gridDimZ, xLen, yLen, zLen);
-  if ((err = cudaGetLastError()) != cudaSuccess)
-    std::cerr << "Kernel error (computeAccelSorted): " << cudaGetErrorString(err) << std::endl;
-
-  leapfrogStart<<<gridDim, blockDim>>>(particles, particlesCount, sink.xLen, sink.yLen, sink.zLen, trough.zLen,
-                                       trough.slope, trough.intercept, trough.normal);
-  coordTransform<<<gridDim, blockDim>>>(particles, particlesCount, transformMat);
-  cudaDeviceSynchronize();
-  if ((err = cudaGetLastError()) != cudaSuccess)
-    std::cerr << "Kernel error (leapfrogStart or coordTransform): " << cudaGetErrorString(err) << std::endl;
-
-  cudaFree(cellStart);
-  cudaFree(cellEnd);
 }
 
 void updateSimulation(Particle *particles, int particlesCount, const Sink &sink, const Trough &trough, float mass,
@@ -575,23 +491,23 @@ void updateSimulation(Particle *particles, int particlesCount, const Sink &sink,
                 gridDimZ);
 
   cudaError_t err;
-  computeDensitySorted<<<gridDim, blockDim>>>(particles, particlesCount, mass, cellStart, cellEnd, cellSize, gridDimX,
-                                              gridDimY, gridDimZ, xLen, yLen, zLen);
+  computeDensityPressureSorted<<<gridDim, blockDim>>>(particles, particlesCount, mass, cellStart, cellEnd, cellSize,
+                                                      gridDimX, gridDimY, gridDimZ, xLen, yLen, zLen);
   cudaDeviceSynchronize();
   if ((err = cudaGetLastError()) != cudaSuccess)
-    std::cerr << "Kernel error (computeDensitySorted): " << cudaGetErrorString(err) << std::endl;
+    std::cerr << "Kernel error (computeDensityPressureSorted): " << cudaGetErrorString(err) << std::endl;
 
   computeAccelSorted<<<gridDim, blockDim>>>(particles, particlesCount, mass, cellStart, cellEnd, cellSize, gridDimX,
                                             gridDimY, gridDimZ, xLen, yLen, zLen);
   if ((err = cudaGetLastError()) != cudaSuccess)
     std::cerr << "Kernel error (computeAccelSorted): " << cudaGetErrorString(err) << std::endl;
 
-  leapfrogStep<<<gridDim, blockDim>>>(particles, particlesCount, sink.xLen, sink.yLen, sink.zLen, trough.zLen,
-                                      trough.slope, trough.intercept, trough.normal);
+  integration<<<gridDim, blockDim>>>(particles, particlesCount, sink.xLen, sink.yLen, sink.zLen, trough.zLen,
+                                     trough.slope, trough.intercept, trough.normal);
   coordTransform<<<gridDim, blockDim>>>(particles, particlesCount, transformMat);
   cudaDeviceSynchronize();
   if ((err = cudaGetLastError()) != cudaSuccess)
-    std::cerr << "Kernel error (leapfrogStep or coordTransform): " << cudaGetErrorString(err) << std::endl;
+    std::cerr << "Kernel error (integration or coordTransform): " << cudaGetErrorString(err) << std::endl;
 
   cudaFree(cellStart);
   cudaFree(cellEnd);

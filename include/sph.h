@@ -13,15 +13,24 @@
 class Particle {
  public:
   __host__ __device__ Particle()
-      : density(0.0f), inSink(true), position(), screenPos(), velocity(), velocityHalf(), acceleration(), cellId(0) {}
+      : density(0.0f),
+        pressure(0.0f),
+        inSink(true),
+        position(),
+        screenPos(),
+        velocity(),
+        averageVelocity(),
+        acceleration(),
+        cellId(0) {}
   __host__ __device__ Particle(Vec3 position, int id);
   float density = 0.0f;
+  float pressure = 0.0f;
   bool inSink;
 
   Vec3 position;
   Vec2 screenPos;
   Vec3 velocity;
-  Vec3 velocityHalf;
+  Vec3 averageVelocity;
   Vec3 acceleration;
   int cellId;
 };
@@ -30,8 +39,6 @@ class Particle {
  * Create particles
  */
 Particle *initParticles(int &particleCount, float &mass, Sink &sink, Trough &trough);
-void initSimulation(Particle *particles, int particlesCount, const Sink &sink, const Trough &trough, float mass,
-                    float *transformMat);
 /**
  * Compute interaction and update the particles
  */

@@ -75,7 +75,6 @@ int main() {
   int particleCount = 0;
   float mass = 1.0f;
   Particle *particles = initParticles(particleCount, mass, sink, trough);
-  initSimulation(particles, particleCount, sink, trough, mass, transformMatOnGPU);
 
   // [Optional] Timer
   auto init_end = std::chrono::high_resolution_clock::now();
