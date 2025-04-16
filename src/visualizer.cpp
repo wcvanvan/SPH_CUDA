@@ -17,10 +17,24 @@ void drawPoints(std::vector<Vec2> &points, SDL_Renderer *sdlRenderer) {
 Vec2 worldToScreen(Vec3 &worldCoord) {
   Vec4 p(worldCoord);
   Vec4 ndcCoord = transformMat * p;
+  if (ndcCoord.w <= 0.0f) {
+    return {-1, -1};
+  }
   ndcCoord.x /= ndcCoord.w;
   ndcCoord.y /= ndcCoord.w;
 
-  if (ndcCoord.x < -1.0f || ndcCoord.x > 1.0f || ndcCoord.y < -1.0f || ndcCoord.y > 1.0f) return {-1, -1};
+  if (ndcCoord.x < -1.0f) {
+    ndcCoord.x = -1.0f;
+  }
+  if (ndcCoord.x > 1.0f) {
+    ndcCoord.x = 1.0f;
+  }
+  if (ndcCoord.y < -1.0f) {
+    ndcCoord.y = -1.0f;
+  }
+  if (ndcCoord.y > 1.0f) {
+    ndcCoord.y = 1.0f;
+  }
 
   float screenX = std::max(0.0f, std::min(1.0f, (ndcCoord.x + 1.0f) * 0.5f)) * SCREEN_WIDTH;
   float screenY = std::max(0.0f, std::min(1.0f, (1.0f - ndcCoord.y) * 0.5f)) * SCREEN_HEIGHT;
