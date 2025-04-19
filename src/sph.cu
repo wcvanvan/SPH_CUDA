@@ -66,7 +66,7 @@ struct ParticleComparator {
 // Update: each thread loops only over particles in its own and neighboring grid cells.
 __global__ void computeDensityPressureSorted(Particle *particles, int particleCount, float mass, int *cellStart,
                                              int *cellEnd, float cellSize, int gridDimX, int gridDimY, int gridDimZ,
-                                             float xLen, float yLen, float zLen) {
+                                             float xLen, float yLen, float zLen, float POLY6, float WEIGHT_AT_0) {
   int i = blockDim.x * blockIdx.x + threadIdx.x;
   if (i >= particleCount) return;
   Particle &particle = particles[i];
@@ -115,7 +115,7 @@ __global__ void computeDensityPressureSorted(Particle *particles, int particleCo
 // Update: each thread loops only over particles in its own and neighboring grid cells.
 __global__ void computeAccelSorted(Particle *particles, int particleCount, float mass, int *cellStart, int *cellEnd,
                                    float cellSize, int gridDimX, int gridDimY, int gridDimZ, float xLen, float yLen,
-                                   float zLen) {
+                                   float zLen, float VISCOSITY_LAPLACIAN) {
   int i = blockDim.x * blockIdx.x + threadIdx.x;
   if (i >= particleCount) return;
   Particle &particle = particles[i];
@@ -158,7 +158,7 @@ __global__ void computeAccelSorted(Particle *particles, int particleCount, float
           // pressure force push particles away
           float V = mass / particles[j].density / 2.0f;
           float Kr = KERNEL_RADIUS - r;
-          float Kp = SPIKY_GRAD * Kr * Kr;
+          float Kp = (-VISCOSITY_LAPLACIAN) * Kr * Kr;
           float pressureForce = V * (particle.pressure + particles[j].pressure) * Kp;
           particle.acceleration.x -= dx * pressureForce / r;
           particle.acceleration.y -= dy * pressureForce / r;
@@ -300,7 +300,8 @@ int *initCellEnd(int totalCells) {
 }
 
 // Normalize mass based on the density of particles in the sink
-float normalizeMass(Particle *particles, int particleCount, const Sink &sink, int *cellStart, int *cellEnd) {
+float normalizeMass(Particle *particles, int particleCount, const Sink &sink, int *cellStart, int *cellEnd,
+                    float POLY6, float WEIGHT_AT_0) {
   float mass = 1.0f;
   int blockDim = 32;
   int gridDim = (particleCount + (blockDim - 1)) / blockDim;
@@ -316,7 +317,7 @@ float normalizeMass(Particle *particles, int particleCount, const Sink &sink, in
   sortParticles(particles, particleCount, cellStart, cellEnd, cellSize, xLen, yLen, zLen, gridDimX, gridDimY, gridDimZ);
 
   computeDensityPressureSorted<<<gridDim, blockDim>>>(particles, particleCount, mass, cellStart, cellEnd, cellSize,
-                                                      gridDimX, gridDimY, gridDimZ, xLen, yLen, zLen);
+                                                      gridDimX, gridDimY, gridDimZ, xLen, yLen, zLen, POLY6, WEIGHT_AT_0);
   cudaDeviceSynchronize();
 
   cudaError_t err;
@@ -341,11 +342,11 @@ float normalizeMass(Particle *particles, int particleCount, const Sink &sink, in
   return mass;
 }
 
-Particle *initParticles(int &particleCount, float &mass, Sink &sink, Trough &trough, int *cellStart, int *cellEnd) {
+Particle *initParticles(int &particleCount, float &mass, Sink &sink, Trough &trough, int *cellStart, int *cellEnd,
+                        float POLY6, float WEIGHT_AT_0) {
   int droppingparticleCount = 0;
   Particle *particlesOnGPU = placeParticles(particleCount, droppingparticleCount, sink, trough);
-  mass = normalizeMass(particlesOnGPU, particleCount - droppingparticleCount, sink, cellStart, cellEnd);
-  ;
+  mass = normalizeMass(particlesOnGPU, particleCount - droppingparticleCount, sink, cellStart, cellEnd, POLY6, WEIGHT_AT_0);
   return particlesOnGPU;
 }
 
@@ -506,7 +507,8 @@ __global__ void coordTransform(Particle *particles, int particleCount, float *tr
 }
 
 void updateSimulation(Particle *particles, int particleCount, const Sink &sink, const Trough &trough, float mass,
-                      float *transformMat, int *cellStart, int *cellEnd, Vec2 *screenPosOnGPU, Vec2 *screenPosOnCPU) {
+                      float *transformMat, int *cellStart, int *cellEnd, Vec2 *screenPosOnGPU, Vec2 *screenPosOnCPU,
+                      float POLY6, float VISCOSITY_LAPLACIAN, float WEIGHT_AT_0) {
   int blockDim = 32;
   int gridDim = (particleCount + (blockDim - 1)) / blockDim;
 
@@ -522,13 +524,13 @@ void updateSimulation(Particle *particles, int particleCount, const Sink &sink, 
 
   cudaError_t err;
   computeDensityPressureSorted<<<gridDim, blockDim>>>(particles, particleCount, mass, cellStart, cellEnd, cellSize,
-                                                      gridDimX, gridDimY, gridDimZ, xLen, yLen, zLen);
+                                                      gridDimX, gridDimY, gridDimZ, xLen, yLen, zLen, POLY6, WEIGHT_AT_0);
   cudaDeviceSynchronize();
   if ((err = cudaGetLastError()) != cudaSuccess)
     std::cerr << "Kernel error (computeDensityPressureSorted): " << cudaGetErrorString(err) << std::endl;
 
   computeAccelSorted<<<gridDim, blockDim>>>(particles, particleCount, mass, cellStart, cellEnd, cellSize, gridDimX,
-                                            gridDimY, gridDimZ, xLen, yLen, zLen);
+                                            gridDimY, gridDimZ, xLen, yLen, zLen, VISCOSITY_LAPLACIAN);
   if ((err = cudaGetLastError()) != cudaSuccess)
     std::cerr << "Kernel error (computeAccelSorted): " << cudaGetErrorString(err) << std::endl;
 

@@ -36,14 +36,16 @@ class Particle {
 /**
  * Create particles
  */
-Particle *initParticles(int &particleCount, float &mass, Sink &sink, Trough &trough, int *cellStart, int *cellEnd);
+Particle *initParticles(int &particleCount, float &mass, Sink &sink, Trough &trough, int *cellStart, int *cellEnd,
+                        float POLY6, float WEIGHT_AT_0);
 
 Vec2 *initScreenPos(int particleCount);
 /**
  * Compute interaction and update the particles
  */
 void updateSimulation(Particle *particles, int particleCount, const Sink &sink, const Trough &trough, float mass,
-                      float *transformMat, int *cellStart, int *cellEnd, Vec2 *screenPosOnGPU, Vec2 *screenPosOnCPU);
+                      float *transformMat, int *cellStart, int *cellEnd, Vec2 *screenPosOnGPU, Vec2 *screenPosOnCPU,
+                      float POLY6, float VISCOSITY_LAPLACIAN, float WEIGHT_AT_0);
 float *allocateMatOnGPU(Mat4 &mat);
 int *initCellEnd(int totalCells);
 int *initCellStart(int totalCells);

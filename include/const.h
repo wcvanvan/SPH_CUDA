@@ -11,12 +11,3 @@
 #define GRAVITY -0.5f
 #define REFLECT_DAMP 0.75f
 #define FRAMES 2000
-#define POLY6                                                                                                 \
-  (315.0f / (64.0f * M_PI *                                                                                   \
-             (KERNEL_RADIUS * KERNEL_RADIUS * KERNEL_RADIUS * KERNEL_RADIUS * KERNEL_RADIUS * KERNEL_RADIUS * \
-              KERNEL_RADIUS * KERNEL_RADIUS * KERNEL_RADIUS)))
-#define WEIGHT_AT_0 \
-  POLY6 *(KERNEL_RADIUS * KERNEL_RADIUS * KERNEL_RADIUS * KERNEL_RADIUS * KERNEL_RADIUS * KERNEL_RADIUS)
-#define VISCOSITY_LAPLACIAN \
-  (45.0 / (M_PI * (KERNEL_RADIUS * KERNEL_RADIUS * KERNEL_RADIUS * KERNEL_RADIUS * KERNEL_RADIUS * KERNEL_RADIUS)))
-#define SPIKY_GRAD (-VISCOSITY_LAPLACIAN)

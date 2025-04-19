@@ -69,6 +69,13 @@ int main() {
   auto start = std::chrono::high_resolution_clock::now();
 
   // Init scene
+  float POLY6 = (315.0f / (64.0f * M_PI *
+                           (KERNEL_RADIUS * KERNEL_RADIUS * KERNEL_RADIUS * KERNEL_RADIUS * KERNEL_RADIUS *
+                            KERNEL_RADIUS * KERNEL_RADIUS * KERNEL_RADIUS * KERNEL_RADIUS)));
+  float WEIGHT_AT_0 =
+      POLY6 * (KERNEL_RADIUS * KERNEL_RADIUS * KERNEL_RADIUS * KERNEL_RADIUS * KERNEL_RADIUS * KERNEL_RADIUS);
+  float VISCOSITY_LAPLACIAN =
+      45.0 / (M_PI * (KERNEL_RADIUS * KERNEL_RADIUS * KERNEL_RADIUS * KERNEL_RADIUS * KERNEL_RADIUS * KERNEL_RADIUS));
   Sink sink;
   Trough trough;
   getTroughPosition(trough, sink);
@@ -81,7 +88,7 @@ int main() {
   int totalCells = gridDimX * gridDimY * gridDimZ;
   int *cellStart = initCellStart(totalCells);
   int *cellEnd = initCellEnd(totalCells);
-  Particle *particlesOnGPU = initParticles(particleCount, mass, sink, trough, cellStart, cellEnd);
+  Particle *particlesOnGPU = initParticles(particleCount, mass, sink, trough, cellStart, cellEnd, POLY6, WEIGHT_AT_0);
   Vec2 *screenPosOnGPU = initScreenPos(particleCount);
   Vec2 *screenPosOnCPU = new Vec2[particleCount];
 
@@ -94,7 +101,7 @@ int main() {
   int count = 0;
   while (count < FRAMES) {
     updateSimulation(particlesOnGPU, particleCount, sink, trough, mass, transformMatOnGPU, cellStart, cellEnd,
-                     screenPosOnGPU, screenPosOnCPU);
+                     screenPosOnGPU, screenPosOnCPU, POLY6, VISCOSITY_LAPLACIAN, WEIGHT_AT_0);
     std::vector<Vec2> *framePositions = new std::vector<Vec2>();
     framePositions->reserve(particleCount);
     for (int i = 0; i < particleCount; i++) {
