@@ -74,7 +74,14 @@ int main() {
   getTroughPosition(trough, sink);
   int particleCount = 0;
   float mass = 1.0f;
-  Particle *particles = initParticles(particleCount, mass, sink, trough);
+  float cellSize = KERNEL_RADIUS;
+  int gridDimX = (int)ceil(sink.xLen / cellSize);
+  int gridDimY = (int)ceil(sink.yLen / cellSize);
+  int gridDimZ = (int)ceil(sink.zLen / cellSize);
+  int totalCells = gridDimX * gridDimY * gridDimZ;
+  int *cellStart = initCellStart(totalCells);
+  int *cellEnd = initCellEnd(totalCells);
+  Particle *particles = initParticles(particleCount, mass, sink, trough, cellStart, cellEnd);
 
   // [Optional] Timer
   auto init_end = std::chrono::high_resolution_clock::now();
@@ -84,7 +91,7 @@ int main() {
   FrameData *frameData = new FrameData();
   int count = 0;
   while (count < FRAMES) {
-    updateSimulation(particles, particleCount, sink, trough, mass, transformMatOnGPU);
+    updateSimulation(particles, particleCount, sink, trough, mass, transformMatOnGPU, cellStart, cellEnd);
     std::vector<Vec2> *framePositions = new std::vector<Vec2>();
     framePositions->reserve(particleCount);
     for (int i = 0; i < particleCount; i++) {

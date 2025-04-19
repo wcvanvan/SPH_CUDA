@@ -197,8 +197,6 @@ float *allocateMatOnGPU(Mat4 &mat) {
 void sortParticles(Particle *particles, int particlesCount, int *&cellStart, int *&cellEnd, float cellSize, float xLen,
                    float yLen, float zLen, int gridDimX, int gridDimY, int gridDimZ) {
   int totalCells = gridDimX * gridDimY * gridDimZ;
-  cudaMalloc(&cellStart, totalCells * sizeof(int));
-  cudaMalloc(&cellEnd, totalCells * sizeof(int));
 
   int threads = 128;
   int blocks = (particlesCount + threads - 1) / threads;
@@ -215,7 +213,7 @@ void sortParticles(Particle *particles, int particlesCount, int *&cellStart, int
 }
 
 // Normalize mass based on the density of particles in the sink
-float normalizeMass(Particle *particles, int particlesCount, const Sink &sink) {
+float normalizeMass(Particle *particles, int particlesCount, const Sink &sink, int *cellStart, int *cellEnd) {
   float mass = 1.0f;
   int blockDim = 32;
   int gridDim = (particlesCount + (blockDim - 1)) / blockDim;
@@ -224,13 +222,10 @@ float normalizeMass(Particle *particles, int particlesCount, const Sink &sink) {
   float xLen = sink.xLen;
   float yLen = sink.yLen;
   float zLen = sink.zLen;
-
   float cellSize = KERNEL_RADIUS;
-  int gridDimX = (int)ceil(xLen / cellSize);
-  int gridDimY = (int)ceil(yLen / cellSize);
-  int gridDimZ = (int)ceil(zLen / cellSize);
-
-  int *cellStart, *cellEnd;
+  int gridDimX = (int)ceil(sink.xLen / cellSize);
+  int gridDimY = (int)ceil(sink.yLen / cellSize);
+  int gridDimZ = (int)ceil(sink.zLen / cellSize);
   sortParticles(particles, particlesCount, cellStart, cellEnd, cellSize, xLen, yLen, zLen, gridDimX, gridDimY,
                 gridDimZ);
 
@@ -320,10 +315,22 @@ Particle *placeParticles(int &particlesCount, int &droppingParticlesCount, Sink 
   return particles;
 }
 
-Particle *initParticles(int &particlesCount, float &mass, Sink &sink, Trough &trough) {
+int *initCellStart(int totalCells) {
+  int *cellStart;
+  cudaMalloc(&cellStart, totalCells * sizeof(int));
+  return cellStart;
+}
+
+int *initCellEnd(int totalCells) {
+  int *cellEnd;
+  cudaMalloc(&cellEnd, totalCells * sizeof(int));
+  return cellEnd;
+}
+
+Particle *initParticles(int &particlesCount, float &mass, Sink &sink, Trough &trough, int *cellStart, int *cellEnd) {
   int droppingParticlesCount = 0;
   Particle *particles = placeParticles(particlesCount, droppingParticlesCount, sink, trough);
-  mass = normalizeMass(particles, particlesCount - droppingParticlesCount, sink);
+  mass = normalizeMass(particles, particlesCount - droppingParticlesCount, sink, cellStart, cellEnd);
   return particles;
 }
 
@@ -477,7 +484,7 @@ __global__ void coordTransform(Particle *particles, int particlesCount, float *t
 }
 
 void updateSimulation(Particle *particles, int particlesCount, const Sink &sink, const Trough &trough, float mass,
-                      float *transformMat) {
+                      float *transformMat, int *cellStart, int *cellEnd) {
   int blockDim = 32;
   int gridDim = (particlesCount + (blockDim - 1)) / blockDim;
 
@@ -489,7 +496,6 @@ void updateSimulation(Particle *particles, int particlesCount, const Sink &sink,
   int gridDimY = (int)ceil(yLen / cellSize);
   int gridDimZ = (int)ceil(zLen / cellSize);
 
-  int *cellStart, *cellEnd;
   sortParticles(particles, particlesCount, cellStart, cellEnd, cellSize, xLen, yLen, zLen, gridDimX, gridDimY,
                 gridDimZ);
 
