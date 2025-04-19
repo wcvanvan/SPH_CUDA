@@ -17,7 +17,6 @@ class Particle {
         pressure(0.0f),
         inSink(true),
         position(),
-        screenPos(),
         velocity(),
         averageVelocity(),
         acceleration(),
@@ -28,7 +27,6 @@ class Particle {
   bool inSink;
 
   Vec3 position;
-  Vec2 screenPos;
   Vec3 velocity;
   Vec3 averageVelocity;
   Vec3 acceleration;
@@ -38,12 +36,14 @@ class Particle {
 /**
  * Create particles
  */
-Particle *initParticles(int &particlesCount, float &mass, Sink &sink, Trough &trough, int *cellStart, int *cellEnd);
+Particle *initParticles(int &particleCount, float &mass, Sink &sink, Trough &trough, int *cellStart, int *cellEnd);
+
+Vec2 *initScreenPos(int particleCount);
 /**
  * Compute interaction and update the particles
  */
-void updateSimulation(Particle *particles, int particlesCount, const Sink &sink, const Trough &trough, float mass,
-                      float *transformMat, int *cellStart, int *cellEnd);
+void updateSimulation(Particle *particles, int particleCount, const Sink &sink, const Trough &trough, float mass,
+                      float *transformMat, int *cellStart, int *cellEnd, Vec2 *screenPosOnGPU, Vec2 *screenPosOnCPU);
 float *allocateMatOnGPU(Mat4 &mat);
 int *initCellEnd(int totalCells);
 int *initCellStart(int totalCells);

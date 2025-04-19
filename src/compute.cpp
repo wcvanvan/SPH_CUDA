@@ -81,7 +81,9 @@ int main() {
   int totalCells = gridDimX * gridDimY * gridDimZ;
   int *cellStart = initCellStart(totalCells);
   int *cellEnd = initCellEnd(totalCells);
-  Particle *particles = initParticles(particleCount, mass, sink, trough, cellStart, cellEnd);
+  Particle *particlesOnGPU = initParticles(particleCount, mass, sink, trough, cellStart, cellEnd);
+  Vec2 *screenPosOnGPU = initScreenPos(particleCount);
+  Vec2 *screenPosOnCPU = new Vec2[particleCount];
 
   // [Optional] Timer
   auto init_end = std::chrono::high_resolution_clock::now();
@@ -91,11 +93,12 @@ int main() {
   FrameData *frameData = new FrameData();
   int count = 0;
   while (count < FRAMES) {
-    updateSimulation(particles, particleCount, sink, trough, mass, transformMatOnGPU, cellStart, cellEnd);
+    updateSimulation(particlesOnGPU, particleCount, sink, trough, mass, transformMatOnGPU, cellStart, cellEnd,
+                     screenPosOnGPU, screenPosOnCPU);
     std::vector<Vec2> *framePositions = new std::vector<Vec2>();
     framePositions->reserve(particleCount);
     for (int i = 0; i < particleCount; i++) {
-      framePositions->push_back(particles[i].screenPos);
+      framePositions->push_back(screenPosOnCPU[i]);
     }
     frameData->frames.push_back(framePositions);
     count++;
