@@ -30,14 +30,18 @@ __global__ void computeCellId(Particle *particles, int particlesCount, float cel
   particle.cellId = ix + iy * gridDimX + iz * gridDimX * gridDimY;
 }
 
+__global__ void initCells(int *cellStart, int *cellEnd, int totalCells) {
+  int idx = blockDim.x * blockIdx.x + threadIdx.x;
+  if (idx >= totalCells) return;
+  cellStart[idx] = -1;
+  cellEnd[idx] = -1;
+}
+
 // cellStart[i] = the first particle in cell i; cellEnd[i] = the first particle in cell i+1
 __global__ void findCellStartEnd(Particle *particles, int particlesCount, int *cellStart, int *cellEnd,
                                  int totalCells) {
   int idx = blockDim.x * blockIdx.x + threadIdx.x;
-  if (idx < totalCells) {
-    cellStart[idx] = -1;
-    cellEnd[idx] = -1;
-  }
+  if (idx >= particlesCount) return;
   if (particlesCount == 0) return;
   if (idx == 0) {
     cellStart[particles[0].cellId] = 0;
@@ -207,6 +211,8 @@ void sortParticles(Particle *particles, int particlesCount, int *&cellStart, int
   thrust::device_ptr<Particle> dev_ptr(particles);
   thrust::sort(dev_ptr, dev_ptr + particlesCount, ParticleComparator());
 
+  initCells<<<(totalCells + threads - 1) / threads, threads>>>(cellStart, cellEnd, totalCells);
+  cudaDeviceSynchronize();
   findCellStartEnd<<<(particlesCount + (threads - 1)) / threads, threads>>>(particles, particlesCount, cellStart,
                                                                             cellEnd, totalCells);
   cudaDeviceSynchronize();
