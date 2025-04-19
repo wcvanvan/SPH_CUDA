@@ -253,8 +253,6 @@ float normalizeMass(Particle *particles, int particlesCount, const Sink &sink, i
   mass *= (rho0 * rhos / rho2s);
   std::cout << "Mass: " << mass << std::endl;
 
-  cudaFree(cellStart);
-  cudaFree(cellEnd);
   return mass;
 }
 
@@ -524,6 +522,4 @@ void updateSimulation(Particle *particles, int particlesCount, const Sink &sink,
   if ((err = cudaGetLastError()) != cudaSuccess)
     std::cerr << "Kernel error (integration or coordTransform): " << cudaGetErrorString(err) << std::endl;
 
-  cudaFree(cellStart);
-  cudaFree(cellEnd);
 }
