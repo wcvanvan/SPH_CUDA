@@ -116,23 +116,21 @@ __global__ void computeDensityPressureSorted(Particle *particles, int particleCo
 __global__ void computeAccelSorted(Particle *particles, int particleCount, float mass, int *cellStart, int *cellEnd,
                                    float cellSize, int gridDimX, int gridDimY, int gridDimZ, float xLen, float yLen,
                                    float zLen, float VISCOSITY_LAPLACIAN) {
-  int i = blockDim.x * blockIdx.x + threadIdx.x;
-  if (i >= particleCount) return;
-  Particle &particle = particles[i];
+  int totalCells = gridDimX * gridDimY * gridDimZ;
+  int cellId = blockIdx.x;
+  if (cellId >= totalCells) return;
+  if (cellStart[cellId] == -1) return;
+  // we have at most 34 particles in a cell, 27 neighbor cells
+  __shared__ float3 shared_positions[35 * 27];
+  __shared__ float shared_density[35 * 27];
+  __shared__ float shared_pressure[35 * 27];
+  __shared__ float3 shared_averageVelocity[35 * 27];
 
-  particle.acceleration.x = 0.0f;
-  particle.acceleration.y = 0.0f;
-  particle.acceleration.z = 0.0f;
+  int iz = cellId / (gridDimX * gridDimY);
+  int iy = (cellId % (gridDimX * gridDimY)) / gridDimX;
+  int ix = cellId % gridDimX;
 
-  float h2 = KERNEL_RADIUS * KERNEL_RADIUS;
-
-  float halfX = xLen / 2.0f;
-  float halfY = yLen / 2.0f;
-  float halfZ = zLen / 2.0f;
-  int ix = min(max((int)floor((particle.position.x + halfX) / cellSize), 0), gridDimX - 1);
-  int iy = min(max((int)floor((particle.position.y + halfY) / cellSize), 0), gridDimY - 1);
-  int iz = min(max((int)floor((particle.position.z + halfZ) / cellSize), 0), gridDimZ - 1);
-
+  int neighborParticleCount = 0;
   // Loop over neighboring cells (3×3×3)
   for (int dx = -1; dx <= 1; dx++) {
     for (int dy = -1; dy <= 1; dy++) {
@@ -144,39 +142,66 @@ __global__ void computeAccelSorted(Particle *particles, int particleCount, float
         int neighborCell = nx + ny * gridDimX + nz * gridDimX * gridDimY;
         int start = cellStart[neighborCell];
         int end = cellEnd[neighborCell];
-        if (start == -1) continue;
-        for (int j = start; j < end; j++) {
-          if (j == i) continue;
-          float dx = particles[i].position.x - particles[j].position.x;
-          float dy = particles[i].position.y - particles[j].position.y;
-          float dz = particles[i].position.z - particles[j].position.z;
-          float r2 = dx * dx + dy * dy + dz * dz;
-
-          if (r2 >= h2 || r2 <= 1e-12) continue;
-          float r = sqrtf(r2);
-
-          // pressure force push particles away
-          float V = mass / particles[j].density / 2.0f;
-          float Kr = KERNEL_RADIUS - r;
-          float Kp = (-VISCOSITY_LAPLACIAN) * Kr * Kr;
-          float pressureForce = V * (particle.pressure + particles[j].pressure) * Kp;
-          particle.acceleration.x -= dx * pressureForce / r;
-          particle.acceleration.y -= dy * pressureForce / r;
-          particle.acceleration.z -= dz * pressureForce / r;
-
-          // viscosity force pulls particles closer
-          float Kv = VISCOSITY_LAPLACIAN * (KERNEL_RADIUS - r);
-          float viscosityForce = V * VISCOSITY * Kv;
-          float dvx = particles[j].averageVelocity.x - particle.averageVelocity.x;
-          float dvy = particles[j].averageVelocity.y - particle.averageVelocity.y;
-          float dvz = particles[j].averageVelocity.z - particle.averageVelocity.z;
-          particle.acceleration.x += dvx * viscosityForce;
-          particle.acceleration.y += dvy * viscosityForce;
-          particle.acceleration.z += dvz * viscosityForce;
+        int particlesInCell = end-start;
+        if (start == -1) continue; // empty cell
+        for (int i = threadIdx.x; i < particlesInCell; i += blockDim.x) {
+          Particle &particle = particles[start + i];
+          int idxInSharedMem = neighborParticleCount + i;
+          shared_positions[idxInSharedMem].x = particle.position.x;
+          shared_positions[idxInSharedMem].y = particle.position.y;
+          shared_positions[idxInSharedMem].z = particle.position.z;
+          shared_density[idxInSharedMem] = particle.density;
+          shared_pressure[idxInSharedMem] = particle.pressure;
+          shared_averageVelocity[idxInSharedMem].x = particle.averageVelocity.x;
+          shared_averageVelocity[idxInSharedMem].y = particle.averageVelocity.y;
+          shared_averageVelocity[idxInSharedMem].z = particle.averageVelocity.z;
         }
+        neighborParticleCount += particlesInCell;
       }
     }
   }
+  __syncthreads();
+
+  int firstParticle = cellStart[cellId];
+  int lastParticle = cellEnd[cellId] - 1;
+  int particleId = threadIdx.x + firstParticle;
+  if (particleId > lastParticle) return;
+  Particle &particle = particles[particleId];
+  particle.acceleration.x = 0.0f;
+  particle.acceleration.y = 0.0f;
+  particle.acceleration.z = 0.0f;
+  float h2 = KERNEL_RADIUS * KERNEL_RADIUS;
+
+  // loop over all the neighbor particles
+  for (int j = 0; j < neighborParticleCount; j++) {
+    float dx = particle.position.x - shared_positions[j].x;
+    float dy = particle.position.y - shared_positions[j].y;
+    float dz = particle.position.z - shared_positions[j].z;
+    float r2 = dx * dx + dy * dy + dz * dz;
+
+    if (r2 >= h2 || r2 <= 1e-12) continue;
+    float r = sqrtf(r2);
+
+    // pressure force push particles away
+    float V = mass / shared_density[j] / 2.0f;
+    float Kr = KERNEL_RADIUS - r;
+    float Kp = (-VISCOSITY_LAPLACIAN) * Kr * Kr;
+    float pressureForce = V * (particle.pressure + shared_pressure[j]) * Kp;
+    particle.acceleration.x -= dx * pressureForce / r;
+    particle.acceleration.y -= dy * pressureForce / r;
+    particle.acceleration.z -= dz * pressureForce / r;
+
+    // viscosity force pulls particles closer
+    float Kv = VISCOSITY_LAPLACIAN * (KERNEL_RADIUS - r);
+    float viscosityForce = V * VISCOSITY * Kv;
+    float dvx = shared_averageVelocity[j].x - particle.averageVelocity.x;
+    float dvy = shared_averageVelocity[j].y - particle.averageVelocity.y;
+    float dvz = shared_averageVelocity[j].z - particle.averageVelocity.z;
+    particle.acceleration.x += dvx * viscosityForce;
+    particle.acceleration.y += dvy * viscosityForce;
+    particle.acceleration.z += dvz * viscosityForce;
+  }
+
   particle.acceleration.x /= particle.density;
   particle.acceleration.y /= particle.density;
   particle.acceleration.z /= particle.density;
@@ -215,6 +240,17 @@ void sortParticles(Particle *particles, int particleCount, int *&cellStart, int 
   findCellStartEnd<<<(particleCount + (threads - 1)) / threads, threads>>>(particles, particleCount, cellStart, cellEnd,
                                                                            totalCells);
   cudaDeviceSynchronize();
+  // int *cellStartCPU = new int[totalCells];
+  // int *cellEndCPU = new int[totalCells];
+  // cudaMemcpy(cellStartCPU, cellStart, sizeof(int)*totalCells, cudaMemcpyDeviceToHost);
+  // cudaMemcpy(cellEndCPU, cellEnd, sizeof(int)*totalCells, cudaMemcpyDeviceToHost);
+  // std::cout << "total cells " << totalCells << std::endl;
+  // int maxCount = 0;
+  // for (int i = 0; i < totalCells; i++) {
+  //   int particleCountInCell = cellEndCPU[i] - cellStartCPU[i];
+  //   maxCount = max(maxCount, particleCountInCell);
+  // }
+  // std::cout <<"max particles count in cells: " << maxCount << std::endl;
 }
 
 Particle *placeParticles(int &particleCount, int &droppingparticleCount, Sink &sink, Trough &trough) {
@@ -300,8 +336,8 @@ int *initCellEnd(int totalCells) {
 }
 
 // Normalize mass based on the density of particles in the sink
-float normalizeMass(Particle *particles, int particleCount, const Sink &sink, int *cellStart, int *cellEnd,
-                    float POLY6, float WEIGHT_AT_0) {
+float normalizeMass(Particle *particles, int particleCount, const Sink &sink, int *cellStart, int *cellEnd, float POLY6,
+                    float WEIGHT_AT_0) {
   float mass = 1.0f;
   int blockDim = 32;
   int gridDim = (particleCount + (blockDim - 1)) / blockDim;
@@ -317,7 +353,8 @@ float normalizeMass(Particle *particles, int particleCount, const Sink &sink, in
   sortParticles(particles, particleCount, cellStart, cellEnd, cellSize, xLen, yLen, zLen, gridDimX, gridDimY, gridDimZ);
 
   computeDensityPressureSorted<<<gridDim, blockDim>>>(particles, particleCount, mass, cellStart, cellEnd, cellSize,
-                                                      gridDimX, gridDimY, gridDimZ, xLen, yLen, zLen, POLY6, WEIGHT_AT_0);
+                                                      gridDimX, gridDimY, gridDimZ, xLen, yLen, zLen, POLY6,
+                                                      WEIGHT_AT_0);
   cudaDeviceSynchronize();
 
   cudaError_t err;
@@ -346,7 +383,8 @@ Particle *initParticles(int &particleCount, float &mass, Sink &sink, Trough &tro
                         float POLY6, float WEIGHT_AT_0) {
   int droppingparticleCount = 0;
   Particle *particlesOnGPU = placeParticles(particleCount, droppingparticleCount, sink, trough);
-  mass = normalizeMass(particlesOnGPU, particleCount - droppingparticleCount, sink, cellStart, cellEnd, POLY6, WEIGHT_AT_0);
+  mass = normalizeMass(particlesOnGPU, particleCount - droppingparticleCount, sink, cellStart, cellEnd, POLY6,
+                       WEIGHT_AT_0);
   return particlesOnGPU;
 }
 
@@ -519,18 +557,19 @@ void updateSimulation(Particle *particles, int particleCount, const Sink &sink, 
   int gridDimX = (int)ceil(xLen / cellSize);
   int gridDimY = (int)ceil(yLen / cellSize);
   int gridDimZ = (int)ceil(zLen / cellSize);
-
+  int totalCells = gridDimX * gridDimY * gridDimZ;
   sortParticles(particles, particleCount, cellStart, cellEnd, cellSize, xLen, yLen, zLen, gridDimX, gridDimY, gridDimZ);
 
   cudaError_t err;
   computeDensityPressureSorted<<<gridDim, blockDim>>>(particles, particleCount, mass, cellStart, cellEnd, cellSize,
-                                                      gridDimX, gridDimY, gridDimZ, xLen, yLen, zLen, POLY6, WEIGHT_AT_0);
+                                                      gridDimX, gridDimY, gridDimZ, xLen, yLen, zLen, POLY6,
+                                                      WEIGHT_AT_0);
   cudaDeviceSynchronize();
   if ((err = cudaGetLastError()) != cudaSuccess)
     std::cerr << "Kernel error (computeDensityPressureSorted): " << cudaGetErrorString(err) << std::endl;
 
-  computeAccelSorted<<<gridDim, blockDim>>>(particles, particleCount, mass, cellStart, cellEnd, cellSize, gridDimX,
-                                            gridDimY, gridDimZ, xLen, yLen, zLen, VISCOSITY_LAPLACIAN);
+  computeAccelSorted<<<totalCells/10, 32>>>(particles, particleCount, mass, cellStart, cellEnd, cellSize, gridDimX,
+                                         gridDimY, gridDimZ, xLen, yLen, zLen, VISCOSITY_LAPLACIAN);
   if ((err = cudaGetLastError()) != cudaSuccess)
     std::cerr << "Kernel error (computeAccelSorted): " << cudaGetErrorString(err) << std::endl;
 
