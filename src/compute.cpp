@@ -32,12 +32,12 @@ void getTroughPosition(Trough &trough, Sink &sink) {
   // std::cout << "slope: " << slope << " intercept: " << intercept << std::endl;
 }
 
-void writeDataToFile(FILE *file, const FrameData *frameData, int particleCount) {
+void writeDataToFile(FILE *file, const Vec2 *screenPosOnCPU, int particleCount, int totalFrameCount) {
   fprintf(file, "%d\n", particleCount);
-  int count = 0;
-  for (auto &&frame : frameData->frames) {
+  for (int frame = 0; frame < totalFrameCount; frame++) {
     fprintf(file, "FRAMESTART\n");
-    for (const auto &pos : *frame) {
+    for (int i = 0; i < particleCount; i++) {
+      const Vec2 &pos = screenPosOnCPU[frame * particleCount + i];
       fprintf(file, "%.2f %.2f\n", pos.x, pos.y);
     }
     fprintf(file, "FRAMEEND\n");
@@ -90,34 +90,32 @@ int main() {
   int *cellEnd = initCellEnd(totalCells);
   Particle *particlesOnGPU = initParticles(particleCount, mass, sink, trough, cellStart, cellEnd, POLY6, WEIGHT_AT_0);
   Vec2 *screenPosOnGPU = initScreenPos(particleCount);
-  Vec2 *screenPosOnCPU = new Vec2[particleCount];
+  Vec2 *allFramesOnGPU = initAllFrames(particleCount, FRAMES);
+  Vec2 *screenPosOnCPU = new Vec2[particleCount * FRAMES];
 
   // [Optional] Timer
   auto init_end = std::chrono::high_resolution_clock::now();
   std::chrono::duration<double> init_elapsed = init_end - start;
   std::cout << "Initialization time: " << init_elapsed.count() << " seconds" << std::endl;
 
-  FrameData *frameData = new FrameData();
-  int count = 0;
-  while (count < FRAMES) {
+  int frameCount = 0;
+  while (frameCount < FRAMES) {
     updateSimulation(particlesOnGPU, particleCount, sink, trough, mass, transformMatOnGPU, cellStart, cellEnd,
-                     screenPosOnGPU, screenPosOnCPU, POLY6, VISCOSITY_LAPLACIAN, WEIGHT_AT_0);
-    std::vector<Vec2> *framePositions = new std::vector<Vec2>();
-    framePositions->reserve(particleCount);
-    for (int i = 0; i < particleCount; i++) {
-      framePositions->push_back(screenPosOnCPU[i]);
-    }
-    frameData->frames.push_back(framePositions);
-    count++;
+                     screenPosOnGPU, screenPosOnCPU, POLY6, VISCOSITY_LAPLACIAN, WEIGHT_AT_0, frameCount,
+                     allFramesOnGPU);
+    frameCount++;
   }
+
+  // Copy all frames from GPU to CPU
+  copyAllFramesToCPU(allFramesOnGPU, screenPosOnCPU, particleCount, FRAMES);
 
   // [Optional] Timer
   auto end = std::chrono::high_resolution_clock::now();
   std::chrono::duration<double> elapsed = end - init_end;
-  std::cout << "Frame count: " << frameData->frames.size() << std::endl;
+  std::cout << "Frame count: " << FRAMES << std::endl;
   std::cout << "Computation time: " << elapsed.count() << " seconds" << std::endl;
 
-  writeDataToFile(file, frameData, particleCount);
-  delete frameData;
+  writeDataToFile(file, screenPosOnCPU, particleCount, FRAMES);
+  delete[] screenPosOnCPU;
   return 0;
 }

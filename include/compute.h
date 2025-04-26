@@ -28,6 +28,6 @@ extern const char *filename;
 int compute();
 
 // Utility function to serialize frame data
-void writeDataToFile(FILE *file, const FrameData *frameData, int particleCount);
+void writeDataToFile(FILE *file, const Vec2 *screenPosOnCPU, int particleCount, int totalFrameCount);
 
 #endif

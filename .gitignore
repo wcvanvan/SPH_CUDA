@@ -2,3 +2,5 @@
 particles.dat
 SPH_CUDA
 Visualizer
+report1.nsys-rep
+report1.sqlite
