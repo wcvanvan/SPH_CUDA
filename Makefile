@@ -36,21 +36,23 @@ visualizer.o: $(SRC_DIR)/visualizer.cpp
 	${CXX} $(INC) -c -o visualizer.o $(SRC_DIR)/visualizer.cpp
 vec.o: $(SRC_DIR)/vec.cpp $(INC_DIR)/vec.h
 	${CXX} $(INC) -c -o vec.o $(SRC_DIR)/vec.cpp
-run: Visualizer
+run: clean format Visualizer
 	LD_LIBRARY_PATH=$(SDL2_PATH)/build:$(SDL2_GFX_PATH)/.libs:$$LD_LIBRARY_PATH ./Visualizer
 endif
 ifeq ($(mode),c)
 # Compute mode
 all: SPH_CUDA
-SPH_CUDA: compute.o sph.o vec.o
-	${CXX} -o SPH_CUDA compute.o sph.o vec.o $(LIBS) -lSDL2 -lSDL2_gfx -lcudart
+SPH_CUDA: compute.o sph.o kernel.o vec.o
+	${CXX} -o SPH_CUDA compute.o sph.o kernel.o vec.o $(LIBS) -lSDL2 -lSDL2_gfx -lcudart
 compute.o: $(SRC_DIR)/compute.cpp
 	${CXX} $(INC) -c -o compute.o $(SRC_DIR)/compute.cpp
 sph.o: $(SRC_DIR)/sph.cu $(INC_DIR)/sph.h $(INC_DIR)/vec.h
 	$(NVCC) $(INC) -c -o sph.o $(SRC_DIR)/sph.cu
+kernel.o: $(SRC_DIR)/kernel.cu $(INC_DIR)/sph.h $(INC_DIR)/kernel.h
+	$(NVCC) $(INC) -c -o kernel.o $(SRC_DIR)/kernel.cu
 vec.o: $(SRC_DIR)/vec.cpp $(INC_DIR)/vec.h
 	${CXX} $(INC) -c -o vec.o $(SRC_DIR)/vec.cpp
-run: SPH_CUDA
+run: clean format SPH_CUDA
 	LD_LIBRARY_PATH=$(SDL2_PATH)/build:$(SDL2_GFX_PATH)/.libs:$(CUDA_PATH)/lib64:$$LD_LIBRARY_PATH ./SPH_CUDA $(mode)
 endif
 
