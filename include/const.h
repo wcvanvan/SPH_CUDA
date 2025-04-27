@@ -10,4 +10,4 @@
 #define DELTA_T 0.003f
 #define GRAVITY -0.5f
 #define REFLECT_DAMP 0.75f
-#define FRAMES 2000
+#define FRAMES 20

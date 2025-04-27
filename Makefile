@@ -42,8 +42,8 @@ endif
 ifeq ($(mode),c)
 # Compute mode
 all: SPH_CUDA
-SPH_CUDA: compute.o sph.o kernel.o vec.o
-	${CXX} -o SPH_CUDA compute.o sph.o kernel.o vec.o $(LIBS) -lSDL2 -lSDL2_gfx -lcudart
+SPH_CUDA: compute.o sph.o kernel.o vec.o sph_graph.o
+	${CXX} -o SPH_CUDA compute.o sph.o kernel.o vec.o sph_graph.o $(LIBS) -lSDL2 -lSDL2_gfx -lcudart
 compute.o: $(SRC_DIR)/compute.cpp
 	${CXX} $(INC) -c -o compute.o $(SRC_DIR)/compute.cpp
 sph.o: $(SRC_DIR)/sph.cu $(INC_DIR)/sph.h $(INC_DIR)/vec.h
@@ -52,6 +52,8 @@ kernel.o: $(SRC_DIR)/kernel.cu $(INC_DIR)/sph.h $(INC_DIR)/kernel.h
 	$(NVCC) $(INC) -c -o kernel.o $(SRC_DIR)/kernel.cu
 vec.o: $(SRC_DIR)/vec.cpp $(INC_DIR)/vec.h
 	${CXX} $(INC) -c -o vec.o $(SRC_DIR)/vec.cpp
+sph_graph.o: $(SRC_DIR)/sph_graph.cu $(INC_DIR)/sph.h $(INC_DIR)/sph_graph.h
+	$(NVCC) $(INC) -c -o sph_graph.o $(SRC_DIR)/sph_graph.cu
 run: clean format SPH_CUDA
 	LD_LIBRARY_PATH=$(SDL2_PATH)/build:$(SDL2_GFX_PATH)/.libs:$(CUDA_PATH)/lib64:$$LD_LIBRARY_PATH ./SPH_CUDA $(mode)
 endif

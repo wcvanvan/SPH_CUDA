@@ -5,6 +5,7 @@
 #include "const.h"
 #include "scene.h"
 #include "sph.h"
+#include "sph_graph.h"
 #include "vec.h"
 
 const char *filename = "./particles.dat";
@@ -98,16 +99,19 @@ int main() {
   std::chrono::duration<double> init_elapsed = init_end - start;
   std::cout << "Initialization time: " << init_elapsed.count() << " seconds" << std::endl;
 
-  int frameCount = 0;
-  while (frameCount < FRAMES) {
-    updateSimulation(particlesOnGPU, particleCount, sink, trough, mass, transformMatOnGPU, cellStart, cellEnd,
-                     screenPosOnGPU, screenPosOnCPU, POLY6, VISCOSITY_LAPLACIAN, WEIGHT_AT_0, frameCount,
-                     allFramesOnGPU);
-    frameCount++;
-  }
+  // int frameCount = 0;
+  // while (frameCount < FRAMES) {
+  //   updateSimulation(particlesOnGPU, particleCount, sink, trough, mass, transformMatOnGPU, cellStart, cellEnd,
+  //                    screenPosOnGPU, POLY6, VISCOSITY_LAPLACIAN, WEIGHT_AT_0, frameCount,
+  //                    allFramesOnGPU);
+  //   frameCount++;
+  // }
 
-  // Copy all frames from GPU to CPU
-  copyAllFramesToCPU(allFramesOnGPU, screenPosOnCPU, particleCount, FRAMES);
+  // // Copy all frames from GPU to CPU
+  // copyAllFramesToCPU(allFramesOnGPU, screenPosOnCPU, particleCount, FRAMES);
+
+  simulateAllFramesCuda(particlesOnGPU, particleCount, sink, trough, mass, transformMatOnGPU, cellStart, cellEnd,
+                        screenPosOnGPU, screenPosOnCPU, POLY6, VISCOSITY_LAPLACIAN, WEIGHT_AT_0, allFramesOnGPU);
 
   // [Optional] Timer
   auto end = std::chrono::high_resolution_clock::now();

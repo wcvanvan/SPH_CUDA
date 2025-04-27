@@ -1,6 +1,9 @@
 #pragma once
 
+#include <cuda_runtime.h>
 #include <stdint.h>
+#include <thrust/device_ptr.h>
+#include <thrust/sort.h>
 #include "const.h"
 #include "scene.h"
 #include "vec.h"
@@ -60,8 +63,9 @@ Vec2 *initAllFrames(int particleCount, int frameCount);
  * Compute interaction and update the particles
  */
 void updateSimulation(Particle *particles, int particleCount, const Sink &sink, const Trough &trough, float mass,
-                      float *transformMat, int *cellStart, int *cellEnd, Vec2 *screenPosOnGPU, Vec2 *screenPosOnCPU,
-                      float POLY6, float VISCOSITY_LAPLACIAN, float WEIGHT_AT_0, int frameCount, Vec2 *allFramesOnGPU);
+                      float *transformMat, int *cellStart, int *cellEnd, Vec2 *screenPosOnGPU, float POLY6,
+                      float VISCOSITY_LAPLACIAN, float WEIGHT_AT_0, int frameCount, Vec2 *allFramesOnGPU,
+                      cudaStream_t stream);
 
 float *allocateMatOnGPU(Mat4 &mat);
 
@@ -83,3 +87,6 @@ int *initCellStart(int totalCells);
  * This function will copy all frames from GPU to CPU.
  */
 void copyAllFramesToCPU(Vec2 *allFramesOnGPU, Vec2 *allFramesOnCPU, int particleCount, int frameCount);
+
+void sortParticles(Particle *particles, int particleCount, int *&cellStart, int *&cellEnd, float cellSize, float xLen,
+                   float yLen, float zLen, int gridDimX, int gridDimY, int gridDimZ, cudaStream_t stream);
