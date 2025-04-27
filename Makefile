@@ -36,7 +36,7 @@ visualizer.o: $(SRC_DIR)/visualizer.cpp
 	${CXX} $(INC) -c -o visualizer.o $(SRC_DIR)/visualizer.cpp
 vec.o: $(SRC_DIR)/vec.cpp $(INC_DIR)/vec.h
 	${CXX} $(INC) -c -o vec.o $(SRC_DIR)/vec.cpp
-run: clean format Visualizer
+run: Visualizer
 	LD_LIBRARY_PATH=$(SDL2_PATH)/build:$(SDL2_GFX_PATH)/.libs:$$LD_LIBRARY_PATH ./Visualizer
 endif
 ifeq ($(mode),c)

@@ -33,16 +33,13 @@ void sortParticles(Particle *particles, int particleCount, int *&cellStart, int 
   int blocks = (particleCount + threads - 1) / threads;
   computeCellId<<<blocks, threads>>>(particles, particleCount, cellSize, xLen, yLen, zLen, gridDimX, gridDimY,
                                      gridDimZ);
-  cudaDeviceSynchronize();
 
   thrust::device_ptr<Particle> dev_ptr(particles);
   thrust::sort(dev_ptr, dev_ptr + particleCount, ParticleComparator());
 
   initCells<<<(totalCells + threads - 1) / threads, threads>>>(cellStart, cellEnd, totalCells);
-  cudaDeviceSynchronize();
   findCellStartEnd<<<(particleCount + (threads - 1)) / threads, threads>>>(particles, particleCount, cellStart, cellEnd,
                                                                            totalCells);
-  cudaDeviceSynchronize();
 }
 
 Particle *placeParticles(int &particleCount, int &droppingparticleCount, Sink &sink, Trough &trough) {
@@ -147,7 +144,6 @@ float normalizeMass(Particle *particles, int particleCount, const Sink &sink, in
   computeDensityPressureSorted<<<gridDim, blockDim>>>(particles, particleCount, mass, cellStart, cellEnd, cellSize,
                                                       gridDimX, gridDimY, gridDimZ, xLen, yLen, zLen, POLY6,
                                                       WEIGHT_AT_0);
-  cudaDeviceSynchronize();
 
   cudaError_t err;
   if ((err = cudaGetLastError()) != cudaSuccess)
@@ -220,7 +216,6 @@ void updateSimulation(Particle *particles, int particleCount, const Sink &sink, 
   computeDensityPressureSorted<<<gridDim, blockDim>>>(particles, particleCount, mass, cellStart, cellEnd, cellSize,
                                                       gridDimX, gridDimY, gridDimZ, xLen, yLen, zLen, POLY6,
                                                       WEIGHT_AT_0);
-  cudaDeviceSynchronize();
   if ((err = cudaGetLastError()) != cudaSuccess)
     std::cerr << "Kernel error (computeDensityPressureSorted): " << cudaGetErrorString(err) << std::endl;
 
@@ -232,7 +227,6 @@ void updateSimulation(Particle *particles, int particleCount, const Sink &sink, 
   integration<<<gridDim, blockDim>>>(particles, particleCount, sink.xLen, sink.yLen, sink.zLen, trough.zLen,
                                      trough.slope, trough.intercept, trough.normal);
   coordTransform<<<gridDim, blockDim>>>(particles, particleCount, transformMat, screenPosOnGPU);
-  cudaDeviceSynchronize();
   if ((err = cudaGetLastError()) != cudaSuccess)
     std::cerr << "Kernel error (integration or coordTransform): " << cudaGetErrorString(err) << std::endl;
   cudaError_t copyErr = cudaMemcpy(allFramesOnGPU + frameCount * particleCount, screenPosOnGPU,
