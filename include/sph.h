@@ -11,75 +11,107 @@
 #endif
 
 /**
- * Particle data structure
- * This structure is used to store the particle's position, velocity, density, pressure, and other properties.
+ * Structure of Arrays (SoA) for particle data on the GPU.
  */
-class Particle {
- public:
-  __host__ __device__ Particle()
-      : density(0.0f),
-        pressure(0.0f),
-        inSink(true),
-        position(),
-        velocity(),
-        averageVelocity(),
-        acceleration(),
-        cellId(0) {}
-  __host__ __device__ Particle(Vec3 position, int id);
-  float density = 0.0f;
-  float pressure = 0.0f;
-  bool inSink;
-
-  Vec3 position;
-  Vec3 velocity;
-  Vec3 averageVelocity;
-  Vec3 acceleration;
-  int cellId;
+struct ParticlesSoA {
+  int particleCount = 0;
+  // Position
+  float *posX = nullptr;
+  float *posY = nullptr;
+  float *posZ = nullptr;
+  // Velocity
+  float *velX = nullptr;
+  float *velY = nullptr;
+  float *velZ = nullptr;
+  // Average Velocity (for viscosity)
+  float *avgVelX = nullptr;
+  float *avgVelY = nullptr;
+  float *avgVelZ = nullptr;
+  // Acceleration
+  float *accX = nullptr;
+  float *accY = nullptr;
+  float *accZ = nullptr;
+  // SPH properties
+  float *density = nullptr;
+  float *pressure = nullptr;
+  // State and Grid
+  char *inSink = nullptr;  // Changed from bool to char
+  int *cellId = nullptr;
+  // Sorting index map
+  int *particleIndices =
+      nullptr;  // Stores sorted order: particleIndices[i] is the original index of the i-th sorted particle
 };
 
 /**
- * Create particles
+ * Allocate and initialize particle data structures on the GPU using SoA layout.
+ * Calculates normalized particle mass.
  */
-Particle *initParticles(int &particleCount, float &mass, Sink &sink, Trough &trough, int *cellStart, int *cellEnd,
-                        float POLY6, float WEIGHT_AT_0);
+void initParticlesSoA(ParticlesSoA &particles, int &particleCount, float &mass, Sink &sink, Trough &trough,
+                      int *&cellStart, int *&cellEnd, float POLY6, float WEIGHT_AT_0);
+
+/**
+ * Free all device memory associated with ParticlesSoA.
+ */
+void cleanupParticlesSoA(ParticlesSoA &particles);
 
 /**
  * Create a buffer to store one frame particle positions on GPU side.
- * This buffer will be copied DtoD to the allFrames buffer.
  */
 Vec2 *initScreenPos(int particleCount);
 
 /**
+ * Free the screen position buffer on GPU.
+ */
+void cleanupScreenPos(Vec2 *screenPosOnGPU);
+
+/**
  * Create a buffer to store all frames particle positions on GPU side.
- * Once the simulation is done, we will copy this buffer to CPU side at once.
- * This is more efficient than copying each frame one by one.
  */
 Vec2 *initAllFrames(int particleCount, int frameCount);
 
 /**
- * Compute interaction and update the particles
+ * Free the all-frames buffer on GPU.
  */
-void updateSimulation(Particle *particles, int particleCount, const Sink &sink, const Trough &trough, float mass,
-                      float *transformMat, int *cellStart, int *cellEnd, Vec2 *screenPosOnGPU, Vec2 *screenPosOnCPU,
-                      float POLY6, float VISCOSITY_LAPLACIAN, float WEIGHT_AT_0, int frameCount, Vec2 *allFramesOnGPU);
+void cleanupAllFrames(Vec2 *allFramesOnGPU);
 
+/**
+ * Compute interaction and update the particles for one simulation step using SoA.
+ */
+void updateSimulationSoA(ParticlesSoA &particles, const Sink &sink, const Trough &trough, float mass,
+                         float *transformMatOnGPU, int *cellStart, int *cellEnd, Vec2 *screenPosOnGPU, float POLY6,
+                         float VISCOSITY_LAPLACIAN, float WEIGHT_AT_0, int frameCount, Vec2 *allFramesOnGPU);
+
+/**
+ * Allocate a 4x4 matrix on the GPU.
+ */
 float *allocateMatOnGPU(Mat4 &mat);
 
-/*
- * This function will return a pointer to an array of integers
- * that will be used to store the end index of each cell (exclusive) in the cellStart array.
- * cellEnd[i] = the first particle in cell i+1
+/**
+ * Free the 4x4 matrix on the GPU.
  */
-int *initCellEnd(int totalCells);
+void cleanupMatOnGPU(float *matOnGPU);
 
-/*
- * This function will return a pointer to an array of integers
- * that will be used to store the start index of each cell (inclusive) in the cellEnd array.
- * cellStart[i] = the first particle in cell i
+/**
+ * Allocate cell start index array on GPU.
  */
 int *initCellStart(int totalCells);
 
 /**
- * This function will copy all frames from GPU to CPU.
+ * Free cell start index array on GPU.
+ */
+void cleanupCellStart(int *cellStart);
+
+/**
+ * Allocate cell end index array on GPU.
+ */
+int *initCellEnd(int totalCells);
+
+/**
+ * Free cell end index array on GPU.
+ */
+void cleanupCellEnd(int *cellEnd);
+
+/**
+ * Copy all frames (Vec2 screen positions) from GPU to CPU.
  */
 void copyAllFramesToCPU(Vec2 *allFramesOnGPU, Vec2 *allFramesOnCPU, int particleCount, int frameCount);

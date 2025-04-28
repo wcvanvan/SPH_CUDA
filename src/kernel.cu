@@ -4,25 +4,27 @@
 #include "const.h"
 #include "kernel.h"
 
-// Assign a cell id to each particle based on its position.
-__global__ void computeCellId(Particle *particles, int particleCount, float cellSize, float xLen, float yLen,
-                              float zLen, int gridDimX, int gridDimY, int gridDimZ) {
+__global__ void computeCellIdSoA(int particleCount, float *posX, float *posY, float *posZ, int *cellId, float cellSize,
+                                 float xLen, float yLen, float zLen, int gridDimX, int gridDimY, int gridDimZ) {
   int i = blockDim.x * blockIdx.x + threadIdx.x;
   if (i >= particleCount) return;
-  Particle &particle = particles[i];
+
+  float px = posX[i];
+  float py = posY[i];
+  float pz = posZ[i];
 
   float halfX = xLen / 2.0f;
   float halfY = yLen / 2.0f;
   float halfZ = zLen / 2.0f;
-  int ix = (int)floor((particle.position.x + halfX) / cellSize);
-  int iy = (int)floor((particle.position.y + halfY) / cellSize);
-  int iz = (int)floor((particle.position.z + halfZ) / cellSize);
+  int ix = (int)floorf((px + halfX) / cellSize);
+  int iy = (int)floorf((py + halfY) / cellSize);
+  int iz = (int)floorf((pz + halfZ) / cellSize);
 
   ix = min(max(ix, 0), gridDimX - 1);
   iy = min(max(iy, 0), gridDimY - 1);
   iz = min(max(iz, 0), gridDimZ - 1);
 
-  particle.cellId = ix + iy * gridDimX + iz * gridDimX * gridDimY;
+  cellId[i] = ix + iy * gridDimX + iz * gridDimX * gridDimY;
 }
 
 __global__ void initCells(int *cellStart, int *cellEnd, int totalCells) {
@@ -32,45 +34,56 @@ __global__ void initCells(int *cellStart, int *cellEnd, int totalCells) {
   cellEnd[idx] = -1;
 }
 
-// cellStart[i] = the first particle in cell i; cellEnd[i] = the first particle in cell i+1
-__global__ void findCellStartEnd(Particle *particles, int particleCount, int *cellStart, int *cellEnd, int totalCells) {
+__global__ void findCellStartEndSoA(int particleCount, const int *particleIndices, const int *cellId, int *cellStart,
+                                    int *cellEnd, int totalCells) {
   int idx = blockDim.x * blockIdx.x + threadIdx.x;
   if (idx >= particleCount) return;
   if (particleCount == 0) return;
+
+  int originalIndex = particleIndices[idx];
+  int currentCellId = cellId[originalIndex];
+
   if (idx == 0) {
-    cellStart[particles[0].cellId] = 0;
+    cellStart[currentCellId] = 0;
   } else {
-    int cid = particles[idx].cellId;
-    int prevCid = particles[idx - 1].cellId;
-    if (cid != prevCid) {
-      // as particles are sorted, no data race would happen
-      cellEnd[prevCid] = idx;
-      cellStart[cid] = idx;
+    int prevOriginalIndex = particleIndices[idx - 1];
+    int prevCellId = cellId[prevOriginalIndex];
+    if (currentCellId != prevCellId) {
+      cellEnd[prevCellId] = idx;
+      cellStart[currentCellId] = idx;
     }
   }
+
   if (idx == particleCount - 1) {
-    cellEnd[particles[particleCount - 1].cellId] = particleCount;
+    // Last particle marks the end of its cell
+    cellEnd[currentCellId] = particleCount;
   }
 }
 
-// Update: each thread loops only over particles in its own and neighboring grid cells.
-__global__ void computeDensityPressureSorted(Particle *particles, int particleCount, float mass, int *cellStart,
-                                             int *cellEnd, float cellSize, int gridDimX, int gridDimY, int gridDimZ,
-                                             float xLen, float yLen, float zLen, float POLY6, float WEIGHT_AT_0) {
-  int i = blockDim.x * blockIdx.x + threadIdx.x;
-  if (i >= particleCount) return;
-  Particle &particle = particles[i];
+__global__ void computeDensityPressureSoA(int particleCount, const int *particleIndices, float *posX, float *posY,
+                                          float *posZ, float *density, float *pressure, float mass,
+                                          const int *cellStart, const int *cellEnd, float cellSize, int gridDimX,
+                                          int gridDimY, int gridDimZ, float xLen, float yLen, float zLen, float POLY6,
+                                          float WEIGHT_AT_0) {
+  int i_sorted = blockDim.x * blockIdx.x + threadIdx.x;
+  if (i_sorted >= particleCount) return;
 
-  particle.density = 0.0f;
+  int i = particleIndices[i_sorted];
+
+  float px_i = posX[i];
+  float py_i = posY[i];
+  float pz_i = posZ[i];
+  float currentDensity = 0.0f;
+
   float h2 = KERNEL_RADIUS * KERNEL_RADIUS;
   float C = mass * POLY6;
 
   float halfX = xLen / 2.0f;
   float halfY = yLen / 2.0f;
   float halfZ = zLen / 2.0f;
-  int ix = min(max((int)floor((particle.position.x + halfX) / cellSize), 0), gridDimX - 1);
-  int iy = min(max((int)floor((particle.position.y + halfY) / cellSize), 0), gridDimY - 1);
-  int iz = min(max((int)floor((particle.position.z + halfZ) / cellSize), 0), gridDimZ - 1);
+  int ix = min(max((int)floorf((px_i + halfX) / cellSize), 0), gridDimX - 1);
+  int iy = min(max((int)floorf((py_i + halfY) / cellSize), 0), gridDimY - 1);
+  int iz = min(max((int)floorf((pz_i + halfZ) / cellSize), 0), gridDimZ - 1);
 
   // Loop over neighboring cells (3×3×3)
   for (int dx = -1; dx <= 1; dx++) {
@@ -80,48 +93,70 @@ __global__ void computeDensityPressureSorted(Particle *particles, int particleCo
         int ny = iy + dy;
         int nz = iz + dz;
         if (nx < 0 || nx >= gridDimX || ny < 0 || ny >= gridDimY || nz < 0 || nz >= gridDimZ) continue;
-        int neighborCell = nx + ny * gridDimX + nz * gridDimX * gridDimY;
-        int start = cellStart[neighborCell];
-        int end = cellEnd[neighborCell];
-        if (start == -1) continue;
-        for (int j = start; j < end; j++) {
-          if (j == i) continue;
-          float dx = particle.position.x - particles[j].position.x;
-          float dy = particle.position.y - particles[j].position.y;
-          float dz = particle.position.z - particles[j].position.z;
-          float r2 = dx * dx + dy * dy + dz * dz;
-          float zVal = h2 - r2;
-          if (zVal <= 0 || r2 < 1e-12) continue;
-          float rho = C * zVal * zVal * zVal;
-          particle.density += rho;
+
+        int neighborCellIdx = nx + ny * gridDimX + nz * gridDimX * gridDimY;
+        int start = cellStart[neighborCellIdx];
+        int end = cellEnd[neighborCellIdx];
+
+        if (start != -1) {
+          for (int j_sorted = start; j_sorted < end; j_sorted++) {
+            int j = particleIndices[j_sorted];
+            if (j == i) continue;
+
+            float dx_ij = px_i - posX[j];
+            float dy_ij = py_i - posY[j];
+            float dz_ij = pz_i - posZ[j];
+            float r2 = dx_ij * dx_ij + dy_ij * dy_ij + dz_ij * dz_ij;
+            float zVal = h2 - r2;
+
+            if (zVal > 0.0f) {
+              float rho_contrib = C * zVal * zVal * zVal;
+              currentDensity += rho_contrib;
+            }
+          }
         }
       }
     }
   }
-  particle.density += mass * WEIGHT_AT_0;  // contributing to the density of itself
-  particle.pressure = (pow(particle.density / REST_DENSITY, 7) - 1.0f) * STIFFNESS;
+
+  currentDensity += mass * WEIGHT_AT_0;  // Self-density contribution
+  density[i] = currentDensity;
+  pressure[i] = (powf(currentDensity / REST_DENSITY, 7.0f) - 1.0f) * STIFFNESS;
 }
 
-// Update: each thread loops only over particles in its own and neighboring grid cells.
-__global__ void computeAccelSorted(Particle *particles, int particleCount, float mass, int *cellStart, int *cellEnd,
-                                   float cellSize, int gridDimX, int gridDimY, int gridDimZ, float xLen, float yLen,
-                                   float zLen, float VISCOSITY_LAPLACIAN) {
-  int i = blockDim.x * blockIdx.x + threadIdx.x;
-  if (i >= particleCount) return;
-  Particle &particle = particles[i];
+__global__ void computeAccelSoA(int particleCount, const int *particleIndices, float *posX, float *posY, float *posZ,
+                                float *velX, float *velY, float *velZ, float *avgVelX, float *avgVelY, float *avgVelZ,
+                                float *accX, float *accY, float *accZ, const float *density, const float *pressure,
+                                float mass, const int *cellStart, const int *cellEnd, float cellSize, int gridDimX,
+                                int gridDimY, int gridDimZ, float xLen, float yLen, float zLen,
+                                float VISCOSITY_LAPLACIAN) {
+  int i_sorted = blockDim.x * blockIdx.x + threadIdx.x;
+  if (i_sorted >= particleCount) return;
 
-  particle.acceleration.x = 0.0f;
-  particle.acceleration.y = 0.0f;
-  particle.acceleration.z = 0.0f;
+  int i = particleIndices[i_sorted];
 
-  float h2 = KERNEL_RADIUS * KERNEL_RADIUS;
+  float px_i = posX[i];
+  float py_i = posY[i];
+  float pz_i = posZ[i];
+  float density_i = density[i];
+  float pressure_i = pressure[i];
+  float avgVelX_i = avgVelX[i];
+  float avgVelY_i = avgVelY[i];
+  float avgVelZ_i = avgVelZ[i];
+
+  float forceX = 0.0f;
+  float forceY = 0.0f;
+  float forceZ = 0.0f;
+
+  float h = KERNEL_RADIUS;
+  float h2 = h * h;
 
   float halfX = xLen / 2.0f;
   float halfY = yLen / 2.0f;
   float halfZ = zLen / 2.0f;
-  int ix = min(max((int)floor((particle.position.x + halfX) / cellSize), 0), gridDimX - 1);
-  int iy = min(max((int)floor((particle.position.y + halfY) / cellSize), 0), gridDimY - 1);
-  int iz = min(max((int)floor((particle.position.z + halfZ) / cellSize), 0), gridDimZ - 1);
+  int ix = min(max((int)floorf((px_i + halfX) / cellSize), 0), gridDimX - 1);
+  int iy = min(max((int)floorf((py_i + halfY) / cellSize), 0), gridDimY - 1);
+  int iz = min(max((int)floorf((pz_i + halfZ) / cellSize), 0), gridDimZ - 1);
 
   // Loop over neighboring cells (3×3×3)
   for (int dx = -1; dx <= 1; dx++) {
@@ -131,193 +166,214 @@ __global__ void computeAccelSorted(Particle *particles, int particleCount, float
         int ny = iy + dy;
         int nz = iz + dz;
         if (nx < 0 || nx >= gridDimX || ny < 0 || ny >= gridDimY || nz < 0 || nz >= gridDimZ) continue;
-        int neighborCell = nx + ny * gridDimX + nz * gridDimX * gridDimY;
-        int start = cellStart[neighborCell];
-        int end = cellEnd[neighborCell];
-        if (start == -1) continue;
-        for (int j = start; j < end; j++) {
-          if (j == i) continue;
-          float dx = particles[i].position.x - particles[j].position.x;
-          float dy = particles[i].position.y - particles[j].position.y;
-          float dz = particles[i].position.z - particles[j].position.z;
-          float r2 = dx * dx + dy * dy + dz * dz;
 
-          if (r2 >= h2 || r2 <= 1e-12) continue;
-          float r = sqrtf(r2);
+        int neighborCellIdx = nx + ny * gridDimX + nz * gridDimX * gridDimY;
+        int start = cellStart[neighborCellIdx];
+        int end = cellEnd[neighborCellIdx];
 
-          // pressure force push particles away
-          float V = mass / particles[j].density / 2.0f;
-          float Kr = KERNEL_RADIUS - r;
-          float Kp = (-VISCOSITY_LAPLACIAN) * Kr * Kr;
-          float pressureForce = V * (particle.pressure + particles[j].pressure) * Kp;
-          particle.acceleration.x -= dx * pressureForce / r;
-          particle.acceleration.y -= dy * pressureForce / r;
-          particle.acceleration.z -= dz * pressureForce / r;
+        if (start != -1) {
+          for (int j_sorted = start; j_sorted < end; j_sorted++) {
+            int j = particleIndices[j_sorted];
+            if (i == j) continue;
 
-          // viscosity force pulls particles closer
-          float Kv = VISCOSITY_LAPLACIAN * (KERNEL_RADIUS - r);
-          float viscosityForce = V * VISCOSITY * Kv;
-          float dvx = particles[j].averageVelocity.x - particle.averageVelocity.x;
-          float dvy = particles[j].averageVelocity.y - particle.averageVelocity.y;
-          float dvz = particles[j].averageVelocity.z - particle.averageVelocity.z;
-          particle.acceleration.x += dvx * viscosityForce;
-          particle.acceleration.y += dvy * viscosityForce;
-          particle.acceleration.z += dvz * viscosityForce;
+            float dx_ij = px_i - posX[j];
+            float dy_ij = py_i - posY[j];
+            float dz_ij = pz_i - posZ[j];
+            float r2 = dx_ij * dx_ij + dy_ij * dy_ij + dz_ij * dz_ij;
+
+            if (r2 < h2 && r2 > 1e-12f) {
+              float r = sqrtf(r2);
+              float h_minus_r = h - r;
+
+              float density_j = density[j];
+              float pressure_j = pressure[j];
+
+              float pressure_term = mass * (pressure_i + pressure_j) / (2.0f * density_j);
+              float spiky_grad_factor = -VISCOSITY_LAPLACIAN * h_minus_r * h_minus_r / r;
+              forceX += pressure_term * spiky_grad_factor * dx_ij;
+              forceY += pressure_term * spiky_grad_factor * dy_ij;
+              forceZ += pressure_term * spiky_grad_factor * dz_ij;
+
+              float viscosity_term = VISCOSITY * mass / density_j * VISCOSITY_LAPLACIAN * h_minus_r;
+              forceX += viscosity_term * (avgVelX[j] - avgVelX_i);
+              forceY += viscosity_term * (avgVelY[j] - avgVelY_i);
+              forceZ += viscosity_term * (avgVelZ[j] - avgVelZ_i);
+            }
+          }
         }
       }
     }
   }
-  particle.acceleration.x /= particle.density;
-  particle.acceleration.y /= particle.density;
-  particle.acceleration.z /= particle.density;
-}
 
-__device__ void reflectInSink(Particle &particle, float xLen, float yLen, float zLen) {
-  float tbounce = 0.0f;
-  if (particle.velocity.x != 0 && (particle.position.x > xLen / 2 || particle.position.x < -xLen / 2)) {
-    if (particle.position.x > xLen / 2) {
-      tbounce = (particle.position.x - xLen / 2) / particle.velocity.x;
-      particle.position.x = xLen - particle.position.x;
-    } else {
-      tbounce = (particle.position.x + xLen / 2) / particle.velocity.x;
-      particle.position.x = -xLen - particle.position.x;
-    }
-    // revert the movement for the period
-    particle.position.y -= particle.velocity.y * (1 - REFLECT_DAMP) * tbounce;
-    particle.position.z -= particle.velocity.z * (1 - REFLECT_DAMP) * tbounce;
-    particle.velocity.x = -particle.velocity.x;
-    particle.velocity.x *= REFLECT_DAMP;
-    particle.velocity.y *= REFLECT_DAMP;
-    particle.velocity.z *= REFLECT_DAMP;
-  }
-  if (particle.velocity.y != 0 && (particle.position.y > yLen / 2 || particle.position.y < -yLen / 2)) {
-    // bounce back
-    if (particle.position.y > yLen / 2) {
-      tbounce = (particle.position.y - yLen / 2) / particle.velocity.y;
-      particle.position.y = yLen - particle.position.y;
-    } else {
-      tbounce = (particle.position.y + yLen / 2) / particle.velocity.y;
-      particle.position.y = -yLen - particle.position.y;
-    }
-    // revert the movement for the period
-    particle.position.x -= particle.velocity.x * (1 - REFLECT_DAMP) * tbounce;
-    particle.position.z -= particle.velocity.z * (1 - REFLECT_DAMP) * tbounce;
-    particle.velocity.y = -particle.velocity.y;
-    particle.velocity.x *= REFLECT_DAMP;
-    particle.velocity.y *= REFLECT_DAMP;
-    particle.velocity.z *= REFLECT_DAMP;
-  }
-  if (particle.velocity.z != 0 && (particle.position.z > zLen / 2 || particle.position.z < -zLen / 2)) {
-    // bounce back
-    if (particle.position.z > zLen / 2) {
-      tbounce = (particle.position.z - zLen / 2) / particle.velocity.z;
-      particle.position.z = zLen - particle.position.z;
-    } else {
-      tbounce = (particle.position.z + zLen / 2) / particle.velocity.z;
-      particle.position.z = -zLen - particle.position.z;
-    }
-    // revert the movement for the period
-    particle.position.x -= particle.velocity.x * (1 - REFLECT_DAMP) * tbounce;
-    particle.position.y -= particle.velocity.y * (1 - REFLECT_DAMP) * tbounce;
-    particle.velocity.z = -particle.velocity.z;
-    particle.velocity.x *= REFLECT_DAMP;
-    particle.velocity.y *= REFLECT_DAMP;
-    particle.velocity.z *= REFLECT_DAMP;
-  }
-}
-
-__device__ void reflectInTrough(Particle &particle, float zLen, float slope, float intercept, Vec3 normal) {
-  float y = particle.position.x * slope + intercept;
-  if (y > particle.position.y) {
-    // hitting the bottom of the trough: v' = v - 2(v·N)N
-    float dotV = particle.velocity.x * normal.x + particle.velocity.y * normal.y + particle.velocity.z * normal.z;
-    float newVx = particle.velocity.x - 2 * dotV * normal.x;
-    float newVy = particle.velocity.y - 2 * dotV * normal.y;
-    float newVz = particle.velocity.z - 2 * dotV * normal.z;
-    newVx *= REFLECT_DAMP;
-    newVy *= REFLECT_DAMP;
-    newVz *= REFLECT_DAMP;
-    particle.velocity.x = newVx;
-    particle.velocity.y = newVy;
-    particle.velocity.z = newVz;
-    particle.position.y = y + 0.001;  // simple method putting the particle back on trough
-  }
-  if (particle.velocity.z != 0 && (particle.position.z > zLen / 2 || particle.position.z < -zLen / 2)) {
-    // hitting the side of the trough
-    float tbounce = 0.0f;
-    if (particle.position.z > zLen / 2) {
-      tbounce = (particle.position.z - zLen / 2) / particle.velocity.z;
-      particle.position.z = zLen - particle.position.z;
-    } else {
-      tbounce = (particle.position.z + zLen / 2) / particle.velocity.z;
-      particle.position.z = -zLen - particle.position.z;
-    }
-    // revert the movement for the period
-    particle.position.x -= particle.velocity.x * (1 - REFLECT_DAMP) * tbounce;
-    particle.position.y -= particle.velocity.y * (1 - REFLECT_DAMP) * tbounce;
-    particle.velocity.z = -particle.velocity.z;
-    particle.velocity.x *= REFLECT_DAMP;
-    particle.velocity.y *= REFLECT_DAMP;
-    particle.velocity.z *= REFLECT_DAMP;
-  }
-}
-
-__global__ void integration(Particle *particles, int particleCount, float sinkXLen, float sinkYLen, float sinkZLen,
-                            float troughZLen, float slope, float intercept, Vec3 normal) {
-  int i = blockDim.x * blockIdx.x + threadIdx.x;
-  if (i >= particleCount) {
-    return;
-  }
-  Particle &particle = particles[i];
-  particle.velocity.x += particle.acceleration.x * DELTA_T;
-  particle.velocity.y += particle.acceleration.y * DELTA_T + GRAVITY * DELTA_T;
-  particle.velocity.z += particle.acceleration.z * DELTA_T;
-  particle.position.x += particle.velocity.x * DELTA_T;
-  particle.position.y += particle.velocity.y * DELTA_T;
-  particle.position.z += particle.velocity.z * DELTA_T;
-  if (particle.inSink == false && (particle.position.x > -sinkXLen / 2.0f && particle.position.x < sinkXLen / 2.0f) &&
-      (particle.position.y > -sinkYLen / 2.0f && particle.position.y < sinkYLen / 2.0f) &&
-      (particle.position.z > -sinkZLen / 2.0f && particle.position.z < sinkZLen / 2.0f)) {
-    particle.inSink = true;
-  }
-  if (particle.inSink) {
-    reflectInSink(particle, sinkXLen, sinkYLen, sinkZLen);
+  if (density_i > 1e-12f) {
+    accX[i] = forceX / density_i;
+    accY[i] = forceY / density_i;
+    accZ[i] = forceZ / density_i;
   } else {
-    reflectInTrough(particle, troughZLen, slope, intercept, normal);
+    accX[i] = 0.0f;
+    accY[i] = 0.0f;
+    accZ[i] = 0.0f;
   }
-  particle.averageVelocity.x = (particle.averageVelocity.x + particle.velocity.x) / 2.0f;
-  particle.averageVelocity.y = (particle.averageVelocity.y + particle.velocity.y) / 2.0f;
-  particle.averageVelocity.z = (particle.averageVelocity.z + particle.velocity.z) / 2.0f;
 }
 
-__global__ void coordTransform(Particle *particles, int particleCount, float *transformMat, Vec2 *screenPosOnGPU) {
+__device__ void reflectInSinkSoA(float &px, float &py, float &pz, float &vx, float &vy, float &vz, float xLen,
+                                 float yLen, float zLen) {
+  float halfX = xLen / 2.0f;
+  float halfY = yLen / 2.0f;
+  float halfZ = zLen / 2.0f;
+  float damping = REFLECT_DAMP;
+
+  // X boundary
+  if (px > halfX) {
+    px = halfX - (px - halfX);
+    vx = -vx * damping;
+    vy *= damping;
+    vz *= damping;
+  } else if (px < -halfX) {
+    px = -halfX + (-halfX - px);
+    vx = -vx * damping;
+    vy *= damping;
+    vz *= damping;
+  }
+
+  // Y boundary
+  if (py > halfY) {
+    py = halfY - (py - halfY);
+    vy = -vy * damping;
+    vx *= damping;
+    vz *= damping;
+  } else if (py < -halfY) {
+    py = -halfY + (-halfY - py);
+    vy = -vy * damping;
+    vx *= damping;
+    vz *= damping;
+  }
+
+  // Z boundary
+  if (pz > halfZ) {
+    pz = halfZ - (pz - halfZ);
+    vz = -vz * damping;
+    vx *= damping;
+    vy *= damping;
+  } else if (pz < -halfZ) {
+    pz = -halfZ + (-halfZ - pz);
+    vz = -vz * damping;
+    vx *= damping;
+    vy *= damping;
+  }
+}
+
+__device__ void reflectInTroughSoA(float &px, float &py, float &pz, float &vx, float &vy, float &vz, float zLen,
+                                   float slope, float intercept, Vec3 normal) {
+  float halfZ = zLen / 2.0f;
+  float damping = REFLECT_DAMP;
+
+  float planeY = slope * px + intercept;
+  if (py < planeY) {
+    py = planeY + (planeY - py);
+    float dotVN = vx * normal.x + vy * normal.y + vz * normal.z;
+    vx = (vx - 2.0f * dotVN * normal.x) * damping;
+    vy = (vy - 2.0f * dotVN * normal.y) * damping;
+    vz = (vz - 2.0f * dotVN * normal.z) * damping;
+    py = planeY + 0.001f;
+  }
+
+  if (pz > halfZ) {
+    pz = halfZ - (pz - halfZ);
+    vz = -vz * damping;
+    vx *= damping;
+    vy *= damping;
+  } else if (pz < -halfZ) {
+    pz = -halfZ + (-halfZ - pz);
+    vz = -vz * damping;
+    vx *= damping;
+    vy *= damping;
+  }
+}
+
+__global__ void integrationSoA(int particleCount, const int *particleIndices, float *posX, float *posY, float *posZ,
+                               float *velX, float *velY, float *velZ, float *avgVelX, float *avgVelY, float *avgVelZ,
+                               float *accX, float *accY, float *accZ, char *inSink, float sinkXLen, float sinkYLen,
+                               float sinkZLen, float troughZLen, float slope, float intercept, Vec3 normal) {
+  int i_sorted = blockDim.x * blockIdx.x + threadIdx.x;
+  if (i_sorted >= particleCount) return;
+
+  int i = particleIndices[i_sorted];
+
+  float vx_i = velX[i] + accX[i] * DELTA_T;
+  float vy_i = velY[i] + (accY[i] + GRAVITY) * DELTA_T;
+  float vz_i = velZ[i] + accZ[i] * DELTA_T;
+
+  // Update position
+  float px_i = posX[i] + vx_i * DELTA_T;
+  float py_i = posY[i] + vy_i * DELTA_T;
+  float pz_i = posZ[i] + vz_i * DELTA_T;
+
+  char inSink_i = inSink[i];
+  if (inSink_i == 0) {
+    bool nowInSink = (px_i > -sinkXLen / 2.0f && px_i < sinkXLen / 2.0f) &&
+                     (py_i > -sinkYLen / 2.0f && py_i < sinkYLen / 2.0f) &&
+                     (pz_i > -sinkZLen / 2.0f && pz_i < sinkZLen / 2.0f);
+    if (nowInSink) {
+      inSink_i = 1;
+    }
+  }
+
+  if (inSink_i == 1) {
+    reflectInSinkSoA(px_i, py_i, pz_i, vx_i, vy_i, vz_i, sinkXLen, sinkYLen, sinkZLen);
+  } else {
+    reflectInTroughSoA(px_i, py_i, pz_i, vx_i, vy_i, vz_i, troughZLen, slope, intercept, normal);
+  }
+
+  avgVelX[i] = (avgVelX[i] + vx_i) / 2.0f;
+  avgVelY[i] = (avgVelY[i] + vy_i) / 2.0f;
+  avgVelZ[i] = (avgVelZ[i] + vz_i) / 2.0f;
+
+  posX[i] = px_i;
+  posY[i] = py_i;
+  posZ[i] = pz_i;
+  velX[i] = vx_i;
+  velY[i] = vy_i;
+  velZ[i] = vz_i;
+  inSink[i] = inSink_i;
+}
+
+__global__ void coordTransformSoA(int particleCount, const float *posX, const float *posY, const float *posZ,
+                                  const float *transformMat, Vec2 *screenPosOnGPU) {
   int i = blockDim.x * blockIdx.x + threadIdx.x;
   if (i >= particleCount) {
     return;
   }
-  Particle &particle = particles[i];
-  Vec2 &screenPos = screenPosOnGPU[i];
-  float worldPos[4], result[4];
-  worldPos[0] = particle.position.x;
-  worldPos[1] = particle.position.y;
-  worldPos[2] = particle.position.z;
+
+  float worldPos[4];
+  worldPos[0] = posX[i];
+  worldPos[1] = posY[i];
+  worldPos[2] = posZ[i];
   worldPos[3] = 1.0f;
-  for (int i = 0; i < 4; i++) {
-    result[i] = 0.0f;
-    for (int j = 0; j < 4; j++) {
-      result[i] += transformMat[i * 4 + j] * worldPos[j];
+
+  float ndcPos[4];
+  for (int row = 0; row < 4; row++) {
+    ndcPos[row] = 0.0f;
+    for (int col = 0; col < 4; col++) {
+      ndcPos[row] += transformMat[row * 4 + col] * worldPos[col];
     }
   }
-  float x = result[0] / result[3];
-  float y = result[1] / result[3];
 
-  if (x < -1.0f || x > 1.0f || y < -1.0f || y > 1.0f) {
-    screenPos.x = -1.0f;
-    screenPos.y = -1.0f;
+  float invW = (ndcPos[3] == 0.0f) ? 1.0f : 1.0f / ndcPos[3];
+  float ndcX = ndcPos[0] * invW;
+  float ndcY = ndcPos[1] * invW;
+
+  if (ndcPos[3] <= 0.0f || ndcX < -1.0f || ndcX > 1.0f || ndcY < -1.0f || ndcY > 1.0f) {
+    screenPosOnGPU[i].x = -1.0f;
+    screenPosOnGPU[i].y = -1.0f;
   } else {
-    float screenX = fmaxf(0.0f, fminf(1.0f, (x + 1.0f) * 0.5f)) * SCREEN_WIDTH;
-    float screenY = fmaxf(0.0f, fminf(1.0f, (1.0f - y) * 0.5f)) * SCREEN_HEIGHT;
-    screenPos.x = screenX;
-    screenPos.y = screenY;
+    ndcX = fmaxf(-1.0f, fminf(1.0f, ndcX));
+    ndcY = fmaxf(-1.0f, fminf(1.0f, ndcY));
+
+    float screenX = (ndcX + 1.0f) * 0.5f * SCREEN_WIDTH;
+    float screenY = (1.0f - ndcY) * 0.5f * SCREEN_HEIGHT;
+
+    screenPosOnGPU[i].x = screenX;
+    screenPosOnGPU[i].y = screenY;
   }
 }

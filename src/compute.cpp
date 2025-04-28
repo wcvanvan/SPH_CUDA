@@ -21,28 +21,32 @@ void getTroughPosition(Trough &trough, Sink &sink) {
   Vec3 v1 = trough.vertices[1] - trough.vertices[0];
   Vec3 v2 = trough.vertices[3] - trough.vertices[0];
   trough.normal = cross(v1, v2).normalize();
-  // std::cout << "trough's normal: " << trough.normal.x << " " << trough.normal.y << " " << trough.normal.z <<
-  // std::endl;
 
   // calculate the slope and intercept of the x-y plane of the bottom
-  float slope = (trough.vertices[0].y - trough.vertices[1].y) / (trough.vertices[0].x - trough.vertices[1].x);
-  float intercept = trough.vertices[1].y - slope * trough.vertices[1].x;
-  trough.slope = slope;
-  trough.intercept = intercept;
-  // std::cout << "slope: " << slope << " intercept: " << intercept << std::endl;
+  if (fabs(trough.vertices[0].x - trough.vertices[1].x) > 1e-6) {
+    trough.slope = (trough.vertices[0].y - trough.vertices[1].y) / (trough.vertices[0].x - trough.vertices[1].x);
+    trough.intercept = trough.vertices[1].y - trough.slope * trough.vertices[1].x;
+  } else {
+    trough.slope = 0.0f;
+    trough.intercept = 0.0f;
+    std::cerr << "Warning: Trough bottom appears vertical, slope calculation may be inaccurate." << std::endl;
+  }
 }
 
 void writeDataToFile(FILE *file, const Vec2 *screenPosOnCPU, int particleCount, int totalFrameCount) {
   fprintf(file, "%d\n", particleCount);
   for (int frame = 0; frame < totalFrameCount; frame++) {
     fprintf(file, "FRAMESTART\n");
-    for (int i = 0; i < particleCount; i++) {
-      const Vec2 &pos = screenPosOnCPU[frame * particleCount + i];
-      fprintf(file, "%.2f %.2f\n", pos.x, pos.y);
+    if (particleCount > 0) {
+      for (int i = 0; i < particleCount; i++) {
+        const Vec2 &pos = screenPosOnCPU[(size_t)frame * particleCount + i];
+        fprintf(file, "%.2f %.2f\n", pos.x, pos.y);
+      }
     }
     fprintf(file, "FRAMEEND\n");
   }
-  fflush(file);
+  fflush(file);  // Ensure data is written
+  fclose(file);
 }
 
 int main() {
@@ -61,61 +65,105 @@ int main() {
 
   FILE *file = fopen(filename, "w");
   if (!file) {
-    std::cerr << "Error opening file" << std::endl;
+    std::cerr << "Error opening file: " << filename << std::endl;
+    cleanupMatOnGPU(transformMatOnGPU);
     return 1;
   }
 
-  // [Optional] Timer
   auto start = std::chrono::high_resolution_clock::now();
 
-  // Init scene
-  float POLY6 = (315.0f / (64.0f * M_PI *
-                           (KERNEL_RADIUS * KERNEL_RADIUS * KERNEL_RADIUS * KERNEL_RADIUS * KERNEL_RADIUS *
-                            KERNEL_RADIUS * KERNEL_RADIUS * KERNEL_RADIUS * KERNEL_RADIUS)));
-  float WEIGHT_AT_0 =
-      POLY6 * (KERNEL_RADIUS * KERNEL_RADIUS * KERNEL_RADIUS * KERNEL_RADIUS * KERNEL_RADIUS * KERNEL_RADIUS);
-  float VISCOSITY_LAPLACIAN =
-      45.0 / (M_PI * (KERNEL_RADIUS * KERNEL_RADIUS * KERNEL_RADIUS * KERNEL_RADIUS * KERNEL_RADIUS * KERNEL_RADIUS));
+  float h = KERNEL_RADIUS;
+  float h_pow_9 = powf(h, 9.0f);
+  float h_pow_6 = powf(h, 6.0f);
+  float POLY6 = (315.0f / (64.0f * M_PI * h_pow_9));
+  float WEIGHT_AT_0 = POLY6 * h_pow_6;
+  float VISCOSITY_LAPLACIAN = 45.0f / (M_PI * h_pow_6);
+
   Sink sink;
   Trough trough;
   getTroughPosition(trough, sink);
+
+  ParticlesSoA particles;
   int particleCount = 0;
   float mass = 1.0f;
+
   float cellSize = KERNEL_RADIUS;
-  int gridDimX = (int)ceil(sink.xLen / cellSize);
-  int gridDimY = (int)ceil(sink.yLen / cellSize);
-  int gridDimZ = (int)ceil(sink.zLen / cellSize);
+  int gridDimX = (int)ceilf(sink.xLen / cellSize);
+  int gridDimY = (int)ceilf(sink.yLen / cellSize);
+  int gridDimZ = (int)ceilf(sink.zLen / cellSize);
   int totalCells = gridDimX * gridDimY * gridDimZ;
+  if (totalCells <= 0) {
+    std::cerr << "Error: Invalid grid dimensions calculated. Check scene dimensions and kernel radius." << std::endl;
+    fclose(file);
+    cleanupMatOnGPU(transformMatOnGPU);
+    return 1;
+  }
+
   int *cellStart = initCellStart(totalCells);
   int *cellEnd = initCellEnd(totalCells);
-  Particle *particlesOnGPU = initParticles(particleCount, mass, sink, trough, cellStart, cellEnd, POLY6, WEIGHT_AT_0);
-  Vec2 *screenPosOnGPU = initScreenPos(particleCount);
-  Vec2 *allFramesOnGPU = initAllFrames(particleCount, FRAMES);
-  Vec2 *screenPosOnCPU = new Vec2[particleCount * FRAMES];
 
-  // [Optional] Timer
+  initParticlesSoA(particles, particleCount, mass, sink, trough, cellStart, cellEnd, POLY6, WEIGHT_AT_0);
+
+  Vec2 *screenPosOnGPU = nullptr;
+  Vec2 *allFramesOnGPU = nullptr;
+  Vec2 *screenPosOnCPU = nullptr;
+
+  if (particleCount > 0) {
+    screenPosOnGPU = initScreenPos(particleCount);
+    allFramesOnGPU = initAllFrames(particleCount, FRAMES);
+    try {
+      screenPosOnCPU = new Vec2[(size_t)particleCount * FRAMES];
+    } catch (const std::bad_alloc &e) {
+      std::cerr << "Error: Failed to allocate host memory for screen positions: " << e.what() << std::endl;
+      cleanupParticlesSoA(particles);
+      cleanupCellStart(cellStart);
+      cleanupCellEnd(cellEnd);
+      cleanupMatOnGPU(transformMatOnGPU);
+      cleanupScreenPos(screenPosOnGPU);
+      cleanupAllFrames(allFramesOnGPU);
+      fclose(file);
+      return 1;
+    }
+  } else {
+    std::cout << "Warning: 0 particles initialized. Simulation will not run." << std::endl;
+  }
+
   auto init_end = std::chrono::high_resolution_clock::now();
   std::chrono::duration<double> init_elapsed = init_end - start;
   std::cout << "Initialization time: " << init_elapsed.count() << " seconds" << std::endl;
 
   int frameCount = 0;
-  while (frameCount < FRAMES) {
-    updateSimulation(particlesOnGPU, particleCount, sink, trough, mass, transformMatOnGPU, cellStart, cellEnd,
-                     screenPosOnGPU, screenPosOnCPU, POLY6, VISCOSITY_LAPLACIAN, WEIGHT_AT_0, frameCount,
-                     allFramesOnGPU);
-    frameCount++;
+  if (particleCount > 0) {
+    while (frameCount < FRAMES) {
+      updateSimulationSoA(particles, sink, trough, mass, transformMatOnGPU, cellStart, cellEnd, screenPosOnGPU, POLY6,
+                          VISCOSITY_LAPLACIAN, WEIGHT_AT_0, frameCount, allFramesOnGPU);
+      frameCount++;
+    }
+
+    copyAllFramesToCPU(allFramesOnGPU, screenPosOnCPU, particleCount, FRAMES);
   }
 
-  // Copy all frames from GPU to CPU
-  copyAllFramesToCPU(allFramesOnGPU, screenPosOnCPU, particleCount, FRAMES);
-
-  // [Optional] Timer
   auto end = std::chrono::high_resolution_clock::now();
   std::chrono::duration<double> elapsed = end - init_end;
-  std::cout << "Frame count: " << FRAMES << std::endl;
+  std::cout << "Frame count: " << frameCount << std::endl;
   std::cout << "Computation time: " << elapsed.count() << " seconds" << std::endl;
 
-  writeDataToFile(file, screenPosOnCPU, particleCount, FRAMES);
+  if (particleCount > 0) {
+    writeDataToFile(file, screenPosOnCPU, particleCount, frameCount);
+  } else {
+    fprintf(file, "0\n");
+    fclose(file);
+  }
+
   delete[] screenPosOnCPU;
+
+  cleanupParticlesSoA(particles);
+  cleanupCellStart(cellStart);
+  cleanupCellEnd(cellEnd);
+  cleanupMatOnGPU(transformMatOnGPU);
+  cleanupScreenPos(screenPosOnGPU);
+  cleanupAllFrames(allFramesOnGPU);
+
+  std::cout << "Simulation finished and data written to " << filename << std::endl;
   return 0;
 }
