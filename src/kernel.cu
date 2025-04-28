@@ -60,11 +60,11 @@ __global__ void findCellStartEndSoA(int particleCount, const int *particleIndice
   }
 }
 
-__global__ void computeDensityPressureSoA(int particleCount, const int *particleIndices, float *posX, float *posY,
-                                          float *posZ, float *density, float *pressure, float mass,
-                                          const int *cellStart, const int *cellEnd, float cellSize, int gridDimX,
-                                          int gridDimY, int gridDimZ, float xLen, float yLen, float zLen, float POLY6,
-                                          float WEIGHT_AT_0) {
+__global__ void computeDensityPressureSoAGlobal(int particleCount, const int *particleIndices, float *posX, float *posY,
+                                                float *posZ, float *density, float *pressure, float mass,
+                                                const int *cellStart, const int *cellEnd, float cellSize, int gridDimX,
+                                                int gridDimY, int gridDimZ, float xLen, float yLen, float zLen,
+                                                float POLY6, float WEIGHT_AT_0) {
   int i_sorted = blockDim.x * blockIdx.x + threadIdx.x;
   if (i_sorted >= particleCount) return;
 
@@ -124,15 +124,73 @@ __global__ void computeDensityPressureSoA(int particleCount, const int *particle
   pressure[i] = (powf(currentDensity / REST_DENSITY, 7.0f) - 1.0f) * STIFFNESS;
 }
 
-__global__ void computeAccelSoA(int particleCount, const int *particleIndices, float *posX, float *posY, float *posZ,
-                                float *velX, float *velY, float *velZ, float *avgVelX, float *avgVelY, float *avgVelZ,
-                                float *accX, float *accY, float *accZ, const float *density, const float *pressure,
-                                float mass, const int *cellStart, const int *cellEnd, float cellSize, int gridDimX,
-                                int gridDimY, int gridDimZ, float xLen, float yLen, float zLen,
-                                float VISCOSITY_LAPLACIAN) {
-  int i_sorted = blockDim.x * blockIdx.x + threadIdx.x;
-  if (i_sorted >= particleCount) return;
+__device__ void computeDensityPressureSoA(int i_sorted, int particleCount, const int *particleIndices, float *posX,
+                                          float *posY, float *posZ, float *density, float *pressure, float mass,
+                                          const int *cellStart, const int *cellEnd, float cellSize, int gridDimX,
+                                          int gridDimY, int gridDimZ, float xLen, float yLen, float zLen, float POLY6,
+                                          float WEIGHT_AT_0) {
+  int i = particleIndices[i_sorted];
 
+  float px_i = posX[i];
+  float py_i = posY[i];
+  float pz_i = posZ[i];
+  float currentDensity = 0.0f;
+
+  float h2 = KERNEL_RADIUS * KERNEL_RADIUS;
+  float C = mass * POLY6;
+
+  float halfX = xLen / 2.0f;
+  float halfY = yLen / 2.0f;
+  float halfZ = zLen / 2.0f;
+  int ix = min(max((int)floorf((px_i + halfX) / cellSize), 0), gridDimX - 1);
+  int iy = min(max((int)floorf((py_i + halfY) / cellSize), 0), gridDimY - 1);
+  int iz = min(max((int)floorf((pz_i + halfZ) / cellSize), 0), gridDimZ - 1);
+
+  // Loop over neighboring cells (3×3×3)
+  for (int dx = -1; dx <= 1; dx++) {
+    for (int dy = -1; dy <= 1; dy++) {
+      for (int dz = -1; dz <= 1; dz++) {
+        int nx = ix + dx;
+        int ny = iy + dy;
+        int nz = iz + dz;
+        if (nx < 0 || nx >= gridDimX || ny < 0 || ny >= gridDimY || nz < 0 || nz >= gridDimZ) continue;
+
+        int neighborCellIdx = nx + ny * gridDimX + nz * gridDimX * gridDimY;
+        int start = cellStart[neighborCellIdx];
+        int end = cellEnd[neighborCellIdx];
+
+        if (start != -1) {
+          for (int j_sorted = start; j_sorted < end; j_sorted++) {
+            int j = particleIndices[j_sorted];
+            if (j == i) continue;
+
+            float dx_ij = px_i - posX[j];
+            float dy_ij = py_i - posY[j];
+            float dz_ij = pz_i - posZ[j];
+            float r2 = dx_ij * dx_ij + dy_ij * dy_ij + dz_ij * dz_ij;
+            float zVal = h2 - r2;
+
+            if (zVal > 0.0f) {
+              float rho_contrib = C * zVal * zVal * zVal;
+              currentDensity += rho_contrib;
+            }
+          }
+        }
+      }
+    }
+  }
+
+  currentDensity += mass * WEIGHT_AT_0;  // Self-density contribution
+  density[i] = currentDensity;
+  pressure[i] = (powf(currentDensity / REST_DENSITY, 7.0f) - 1.0f) * STIFFNESS;
+}
+
+__device__ void computeAccelSoA(int i_sorted, int particleCount, const int *particleIndices, float *posX, float *posY,
+                                float *posZ, float *velX, float *velY, float *velZ, float *avgVelX, float *avgVelY,
+                                float *avgVelZ, float *accX, float *accY, float *accZ, const float *density,
+                                const float *pressure, float mass, const int *cellStart, const int *cellEnd,
+                                float cellSize, int gridDimX, int gridDimY, int gridDimZ, float xLen, float yLen,
+                                float zLen, float VISCOSITY_LAPLACIAN) {
   int i = particleIndices[i_sorted];
 
   float px_i = posX[i];
@@ -291,13 +349,11 @@ __device__ void reflectInTroughSoA(float &px, float &py, float &pz, float &vx, f
   }
 }
 
-__global__ void integrationSoA(int particleCount, const int *particleIndices, float *posX, float *posY, float *posZ,
-                               float *velX, float *velY, float *velZ, float *avgVelX, float *avgVelY, float *avgVelZ,
-                               float *accX, float *accY, float *accZ, char *inSink, float sinkXLen, float sinkYLen,
-                               float sinkZLen, float troughZLen, float slope, float intercept, Vec3 normal) {
-  int i_sorted = blockDim.x * blockIdx.x + threadIdx.x;
-  if (i_sorted >= particleCount) return;
-
+__device__ void integrationSoA(int i_sorted, int particleCount, const int *particleIndices, float *posX, float *posY,
+                               float *posZ, float *velX, float *velY, float *velZ, float *avgVelX, float *avgVelY,
+                               float *avgVelZ, float *accX, float *accY, float *accZ, char *inSink, float sinkXLen,
+                               float sinkYLen, float sinkZLen, float troughZLen, float slope, float intercept,
+                               Vec3 normal) {
   int i = particleIndices[i_sorted];
 
   float vx_i = velX[i] + accX[i] * DELTA_T;
@@ -338,13 +394,8 @@ __global__ void integrationSoA(int particleCount, const int *particleIndices, fl
   inSink[i] = inSink_i;
 }
 
-__global__ void coordTransformSoA(int particleCount, const float *posX, const float *posY, const float *posZ,
+__device__ void coordTransformSoA(int i, int particleCount, const float *posX, const float *posY, const float *posZ,
                                   const float *transformMat, Vec2 *screenPosOnGPU) {
-  int i = blockDim.x * blockIdx.x + threadIdx.x;
-  if (i >= particleCount) {
-    return;
-  }
-
   float worldPos[4];
   worldPos[0] = posX[i];
   worldPos[1] = posY[i];
@@ -376,4 +427,29 @@ __global__ void coordTransformSoA(int particleCount, const float *posX, const fl
     screenPosOnGPU[i].x = screenX;
     screenPosOnGPU[i].y = screenY;
   }
+}
+
+__global__ void computeParticlePosition(int particleCount, const int *particleIndices, float *posX, float *posY,
+                                        float *posZ, float *velX, float *velY, float *velZ, float *avgVelX,
+                                        float *avgVelY, float *avgVelZ, float *accX, float *accY, float *accZ,
+                                        float *density, float *pressure, float mass, const int *cellStart,
+                                        const int *cellEnd, float cellSize, int gridDimX, int gridDimY, int gridDimZ,
+                                        float xLen, float yLen, float zLen, float POLY6, float WEIGHT_AT_0,
+                                        float VISCOSITY_LAPLACIAN, char *inSink, float sinkXLen, float sinkYLen,
+                                        float sinkZLen, float troughZLen, float slope, float intercept, Vec3 normal,
+                                        const float *transformMat, Vec2 *screenPosOnGPU) {
+  int i_sorted = blockDim.x * blockIdx.x + threadIdx.x;
+  if (i_sorted >= particleCount) return;
+  computeDensityPressureSoA(i_sorted, particleCount, particleIndices, posX, posY, posZ, density, pressure, mass,
+                            cellStart, cellEnd, cellSize, gridDimX, gridDimY, gridDimZ, xLen, yLen, zLen, POLY6,
+                            WEIGHT_AT_0);
+
+  computeAccelSoA(i_sorted, particleCount, particleIndices, posX, posY, posZ, velX, velY, velZ, avgVelX, avgVelY,
+                  avgVelZ, accX, accY, accZ, density, pressure, mass, cellStart, cellEnd, cellSize, gridDimX, gridDimY,
+                  gridDimZ, xLen, yLen, zLen, VISCOSITY_LAPLACIAN);
+
+  integrationSoA(i_sorted, particleCount, particleIndices, posX, posY, posZ, velX, velY, velZ, avgVelX, avgVelY,
+                 avgVelZ, accX, accY, accZ, inSink, sinkXLen, sinkYLen, sinkZLen, troughZLen, slope, intercept, normal);
+
+  coordTransformSoA(i_sorted, particleCount, posX, posY, posZ, transformMat, screenPosOnGPU);
 }

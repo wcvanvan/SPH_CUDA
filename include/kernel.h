@@ -25,36 +25,11 @@ __global__ void findCellStartEndSoA(int particleCount, const int *particleIndice
 /**
  * Compute particle densities and pressures using SoA and sorted indices.
  */
-__global__ void computeDensityPressureSoA(int particleCount, const int *particleIndices, float *posX, float *posY,
-                                          float *posZ, float *density, float *pressure, float mass,
-                                          const int *cellStart, const int *cellEnd, float cellSize, int gridDimX,
-                                          int gridDimY, int gridDimZ, float xLen, float yLen, float zLen, float POLY6,
-                                          float WEIGHT_AT_0);
-
-/**
- * Compute particle accelerations using SoA and sorted indices.
- */
-__global__ void computeAccelSoA(int particleCount, const int *particleIndices, float *posX, float *posY, float *posZ,
-                                float *velX, float *velY, float *velZ, float *avgVelX, float *avgVelY, float *avgVelZ,
-                                float *accX, float *accY, float *accZ, const float *density, const float *pressure,
-                                float mass, const int *cellStart, const int *cellEnd, float cellSize, int gridDimX,
-                                int gridDimY, int gridDimZ, float xLen, float yLen, float zLen,
-                                float VISCOSITY_LAPLACIAN);
-
-/**
- * Update particle velocities and positions using explicit time integration (SoA version).
- * Handles collision reflections against sink and trough surfaces. Uses sorted indices.
- */
-__global__ void integrationSoA(int particleCount, const int *particleIndices, float *posX, float *posY, float *posZ,
-                               float *velX, float *velY, float *velZ, float *avgVelX, float *avgVelY, float *avgVelZ,
-                               float *accX, float *accY, float *accZ, char *inSink, float sinkXLen, float sinkYLen,
-                               float sinkZLen, float troughZLen, float slope, float intercept, Vec3 normal);
-
-/**
- * Transform 3D particle positions (original indexing) into 2D screen space coordinates (SoA version).
- */
-__global__ void coordTransformSoA(int particleCount, const float *posX, const float *posY, const float *posZ,
-                                  const float *transformMat, Vec2 *screenPosOnGPU);
+__global__ void computeDensityPressureSoAGlobal(int particleCount, const int *particleIndices, float *posX, float *posY,
+                                                float *posZ, float *density, float *pressure, float mass,
+                                                const int *cellStart, const int *cellEnd, float cellSize, int gridDimX,
+                                                int gridDimY, int gridDimZ, float xLen, float yLen, float zLen,
+                                                float POLY6, float WEIGHT_AT_0);
 
 // device functions
 
@@ -69,6 +44,19 @@ __device__ void reflectInSinkSoA(float &px, float &py, float &pz, float &vx, flo
  */
 __device__ void reflectInTroughSoA(float &px, float &py, float &pz, float &vx, float &vy, float &vz, float zLen,
                                    float slope, float intercept, Vec3 normal);
+
+/**
+ * Calling density and pressure calculation, force calculation, time integration and coord transforming
+ */
+__global__ void computeParticlePosition(int particleCount, const int *particleIndices, float *posX, float *posY,
+                                        float *posZ, float *velX, float *velY, float *velZ, float *avgVelX,
+                                        float *avgVelY, float *avgVelZ, float *accX, float *accY, float *accZ,
+                                        float *density, float *pressure, float mass, const int *cellStart,
+                                        const int *cellEnd, float cellSize, int gridDimX, int gridDimY, int gridDimZ,
+                                        float xLen, float yLen, float zLen, float POLY6, float WEIGHT_AT_0,
+                                        float VISCOSITY_LAPLACIAN, char *inSink, float sinkXLen, float sinkYLen,
+                                        float sinkZLen, float troughZLen, float slope, float intercept, Vec3 normal,
+                                        const float *transformMat, Vec2 *screenPosOnGPU);
 
 // comparator for thrust::sort based on cellId using an index array
 struct CompareParticlesByCellId {
