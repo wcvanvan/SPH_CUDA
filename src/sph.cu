@@ -229,7 +229,7 @@ float normalizeMassSoA(ParticlesSoA &particles, int particlesInSinkCount, const 
   sortParticlesAndFindCells(particles, cellStart, cellEnd, cellSize, sink.xLen, sink.yLen, sink.zLen, gridDimX,
                             gridDimY, gridDimZ);
 
-  computeDensityPressureSoAGlobal<<<gridDim, blockDim>>>(
+  computeDensityPressureSoA<<<gridDim, blockDim>>>(
       particleCount, particles.particleIndices, particles.posX, particles.posY, particles.posZ, particles.density,
       particles.pressure, mass, cellStart, cellEnd, cellSize, gridDimX, gridDimY, gridDimZ, sink.xLen, sink.yLen,
       sink.zLen, POLY6, WEIGHT_AT_0);
@@ -346,13 +346,28 @@ void updateSimulationSoA(ParticlesSoA &particles, const Sink &sink, const Trough
 
   sortParticlesAndFindCells(particles, cellStart, cellEnd, cellSize, xLen, yLen, zLen, gridDimX, gridDimY, gridDimZ);
 
-  computeParticlePosition<<<blockDim, gridDim>>>(
+  computeDensityPressureSoA<<<gridDim, blockDim>>>(particleCount, particles.particleIndices, particles.posX,
+                                                   particles.posY, particles.posZ, particles.density,
+                                                   particles.pressure, mass, cellStart, cellEnd, cellSize, gridDimX,
+                                                   gridDimY, gridDimZ, xLen, yLen, zLen, POLY6, WEIGHT_AT_0);
+  CUDA_CHECK(cudaGetLastError());
+
+  computeAccelSoA<<<gridDim, blockDim>>>(
       particleCount, particles.particleIndices, particles.posX, particles.posY, particles.posZ, particles.velX,
       particles.velY, particles.velZ, particles.avgVelX, particles.avgVelY, particles.avgVelZ, particles.accX,
       particles.accY, particles.accZ, particles.density, particles.pressure, mass, cellStart, cellEnd, cellSize,
-      gridDimX, gridDimY, gridDimZ, xLen, yLen, zLen, POLY6, WEIGHT_AT_0, VISCOSITY_LAPLACIAN, particles.inSink,
-      sink.xLen, sink.yLen, sink.zLen, trough.zLen, trough.slope, trough.intercept, trough.normal, transformMatOnGPU,
-      screenPosOnGPU);
+      gridDimX, gridDimY, gridDimZ, xLen, yLen, zLen, VISCOSITY_LAPLACIAN);
+  CUDA_CHECK(cudaGetLastError());
+
+  integrationSoA<<<gridDim, blockDim>>>(particleCount, particles.particleIndices, particles.posX, particles.posY,
+                                        particles.posZ, particles.velX, particles.velY, particles.velZ,
+                                        particles.avgVelX, particles.avgVelY, particles.avgVelZ, particles.accX,
+                                        particles.accY, particles.accZ, particles.inSink, sink.xLen, sink.yLen,
+                                        sink.zLen, trough.zLen, trough.slope, trough.intercept, trough.normal);
+  CUDA_CHECK(cudaGetLastError());
+
+  coordTransformSoA<<<gridDim, blockDim>>>(particleCount, particles.posX, particles.posY, particles.posZ,
+                                           transformMatOnGPU, screenPosOnGPU);
   CUDA_CHECK(cudaGetLastError());
 
   size_t frameOffset = (size_t)frameCount * particleCount;
