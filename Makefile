@@ -11,7 +11,7 @@ LIBS=$(foreach d, $(LIB_DIRS), -L$d)
 
 SRC_DIR=src
 INC_DIR=include
-CPP_SRCS=$(wildcard $(SRC_DIR)/*.cpp) main.cpp
+CPP_SRCS=$(wildcard $(SRC_DIR)/*.cpp)
 CU_SRCS=$(wildcard $(SRC_DIR)/*.cu)
 FORMAT_SRCS=$(CPP_SRCS) $(CU_SRCS) $(wildcard $(INC_DIR)/*.h)
 
